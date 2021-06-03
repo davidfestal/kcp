@@ -4,9 +4,12 @@ go 1.16
 
 require (
 	github.com/MakeNowJust/heredoc v1.0.0
+	github.com/getkin/kin-openapi v0.61.0
 	github.com/muesli/reflow v0.1.0
 	github.com/spf13/cobra v1.1.1
 	github.com/spf13/pflag v1.0.5
+	github.com/stretchr/testify v1.7.0
+	github.com/tufin/oasdiff v0.5.6
 	github.com/wayneashleyberry/terminal-dimensions v1.0.0
 	go.etcd.io/etcd v0.0.0-20191023171146-3cf2f69b5738
 	k8s.io/api v0.0.0

@@ -1,12 +1,15 @@
 package v1alpha1
 
 import (
-	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
+	"encoding/json"
+
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 type ColumnDefinition struct {
-	metav1.TableColumnDefinition
+	metav1.TableColumnDefinition `json:",inline"`
 
 	JSONPath *string `json:"jsonPath"`
 }
@@ -23,26 +26,34 @@ const (
 // CommonAPIResourceSpec holds the common content of both NegociatedAPIResourceSpec
 // and APIResourceImportSpec.
 type CommonAPIResourceSpec struct {
-	metav1.GroupVersion
+	metav1.GroupVersion `json:",inline"`
 
-	// Plural is the plural name of the resource to serve.  It must match the name of the CustomResourceDefinition-registration
-	// too: plural.group and it must be all lowercase.
+	// plural is the plural name of the resource to serve.
+	// The custom resources are served under `/apis/<group>/<version>/.../<plural>`.
+	// Must match the name of the CustomResourceDefinition (in the form `<names.plural>.<group>`).
+	// Must be all lowercase.
 	Plural string `json:"plural"`
-	// Singular is the singular name of the resource.  It must be all lowercase  Defaults to lowercased <kind>
+	// singular is the singular name of the resource. It must be all lowercase. Defaults to lowercased `kind`.
 	Singular string `json:"singular"`
-	// ShortNames are short names for the resource.  It must be all lowercase.
+	// shortNames are short names for the resource, exposed in API discovery documents,
+	// and used by clients to support invocations like `kubectl get <shortname>`.
+	// It must be all lowercase.
 	// +optional
 	ShortNames []string `json:"shortNames,omitempty"`
-	// Kind is the serialized kind of the resource.  It is normally CamelCase and singular.
+	// kind is the serialized kind of the resource. It is normally CamelCase and singular.
+	// Custom resource instances will use this value as the `kind` attribute in API calls.
 	Kind string `json:"kind"`
-	// ListKind is the serialized kind of the list for this resource.  Defaults to <kind>List.
+	// listKind is the serialized kind of the list for this resource. Defaults to "`kind`List".
 	ListKind string `json:"listKind"`
-	// Categories is a list of grouped resources custom resources belong to (e.g. 'all')
+	// categories is a list of grouped resources this custom resource belongs to (e.g. 'all').
+	// This is published in API discovery documents, and used by clients to support invocations like
+	// `kubectl get all`.
 	// +optional
 	Categories []string `json:"categories,omitempty"`
 
 	// +required
-	OpenAPIV3Schema *apiextensions.JSONSchemaProps `json:"openAPIV3Schema"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	OpenAPIV3Schema runtime.RawExtension `json:"openAPIV3Schema"`
 
 	// +patchMergeKey=name
 	// +patchStrategy=merge
@@ -53,4 +64,21 @@ type CommonAPIResourceSpec struct {
 	// +patchStrategy=merge
 	// +optional
 	ColumnDefinitions    []ColumnDefinition `json:"columnDefinitions,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
+}
+
+func (spec *CommonAPIResourceSpec) GetSchema() (*apiextensionsv1.JSONSchemaProps, error) {
+	s := &apiextensionsv1.JSONSchemaProps{}
+	if err := json.Unmarshal(spec.OpenAPIV3Schema.Raw, s); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+func (spec *CommonAPIResourceSpec) SetSchema(s *apiextensionsv1.JSONSchemaProps) error {
+	bytes, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	spec.OpenAPIV3Schema.Raw = bytes
+	return nil
 }

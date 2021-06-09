@@ -7,19 +7,23 @@ import (
 	"reflect"
 
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
-func LCD(fldPath *field.Path, existing, new *apiextensions.JSONSchemaProps, narrowExisting bool) (lcd *apiextensions.JSONSchemaProps, errors utilerrors.Aggregate) {
-	newStrucural, err := schema.NewStructural(new)
+func LCD(fldPath *field.Path, existing, new *apiextensionsv1.JSONSchemaProps, narrowExisting bool) (lcd *apiextensionsv1.JSONSchemaProps, errors utilerrors.Aggregate) {
+	var newInternal, existingInternal apiextensions.JSONSchemaProps
+	apiextensionsv1.Convert_v1_JSONSchemaProps_To_apiextensions_JSONSchemaProps(existing, &existingInternal, nil)
+	apiextensionsv1.Convert_v1_JSONSchemaProps_To_apiextensions_JSONSchemaProps(new, &newInternal, nil)
+	newStrucural, err := schema.NewStructural(&newInternal)
 	if err != nil {
 		return nil, utilerrors.NewAggregate([]error{err})
 	}
 
-	existingStructural, err := schema.NewStructural(existing)
+	existingStructural, err := schema.NewStructural(&existingInternal)
 	if err != nil {
 		return nil, utilerrors.NewAggregate([]error{err})
 	}
@@ -33,40 +37,13 @@ func LCD(fldPath *field.Path, existing, new *apiextensions.JSONSchemaProps, narr
 	if err != nil {
 		return nil, utilerrors.NewAggregate([]error{err})
 	}
-	var jsonSchemaProps apiextensions.JSONSchemaProps
+	var jsonSchemaProps apiextensionsv1.JSONSchemaProps
 	json.Unmarshal(serialized, &jsonSchemaProps)
 	if err != nil {
 		return nil, utilerrors.NewAggregate([]error{err})
 	}
 	return &jsonSchemaProps, nil
 }
-
-type SchemaCompareStrategy string
-
-const (
-	Narrow      SchemaCompareStrategy = "Narrow"
-	Widen       SchemaCompareStrategy = "Widen"
-	CompareOnly SchemaCompareStrategy = "CompareOnly"
-)
-
-type SchemaCompareResult string
-
-const (
-	SubSchema           SchemaCompareResult = "SubSchema"
-	SuperSchema         SchemaCompareResult = "SuperSchema"
-	IncompatibleSchemas SchemaCompareResult = "Incompatibleschema"
-)
-
-type StructuralSchema interface {
-	inhabited() bool
-	compare(fldPath *field.Path, other StructuralSchema, strategy SchemaCompareStrategy)
-}
-
-type BaseStructuralSchema schema.Structural
-type NumericStructuralSchema schema.Structural
-type IntegerStructuralSchema schema.Structural
-type NumberStructuralSchema schema.Structural
-type StringStructuralSchema schema.Structural
 
 func checkTypesAreTheSame(fldPath *field.Path, existing, new *schema.Structural) (errorList field.ErrorList) {
 	if new.Type != existing.Type {

@@ -14,25 +14,22 @@ import (
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
-
 type NegociatedAPIResource struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	// Spec holds the desired state.
 	// +optional
 	Spec NegociatedAPIResourceSpec `json:"spec,omitempty"`
 
-	// Status communicates the observed state.
 	// +optional
 	Status NegociatedAPIResourceStatus `json:"status,omitempty"`
 }
 
 // NegociatedAPIResourceSpec holds the desired state of the NegociatedAPIResource (from the client).
 type NegociatedAPIResourceSpec struct {
-	CommonAPIResourceSpec
-	Publish bool `json:"publish,omitempty"`
+	CommonAPIResourceSpec `json:",inline"`
+	Publish               bool `json:"publish,omitempty"`
 }
 
 // NegociatedAPIResourceConditionType is a valid value for NegociatedAPIResourceCondition.Type
@@ -45,12 +42,11 @@ const (
 
 	// Published means that this negociated API Resource has been published
 	// to the logical cluster as an installed and accepted CRD
-	Published NegociatedAPIResourceConditionType = "Published"
-
-	// Refused means that this negociated API Resource has been submitted
+	// If the API Resource has been submitted
 	// to the logical cluster as an applied CRD, but the CRD could not be published
 	// correctly due to various reasons (non-structural schema, non-accepted names, ...)
-	Refused NegociatedAPIResourceConditionType = "Refused"
+	// then the Published condition will be false
+	Published NegociatedAPIResourceConditionType = "Published"
 
 	// Enforced means that a CRD version for the same GVR has been manually applied,
 	// so that the current schema of the negociated api resource has been forcbly
@@ -65,7 +61,7 @@ const (
 
 // NegociatedAPIResourceCondition contains details for the current condition of this negociated api resource.
 type NegociatedAPIResourceCondition struct {
-	// Type is the type of the condition. Types include Established, NamesAccepted and Terminating.
+	// Type is the type of the condition. Types include Submitted, Published, Refused and Enforced.
 	Type NegociatedAPIResourceConditionType `json:"type"`
 	// Status is the status of the condition.
 	// Can be True, False, Unknown.

@@ -5,24 +5,24 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
 func TestSuccessNewHasMoreProperties(t *testing.T) {
-	existing := &apiextensions.JSONSchemaProps{
+	existing := &apiextensionsv1.JSONSchemaProps{
 		Type: "object",
-		Properties: map[string]apiextensions.JSONSchemaProps{
+		Properties: map[string]apiextensionsv1.JSONSchemaProps{
 			"existing": {
 				Type: "string",
 			},
 		},
 	}
-	new := &apiextensions.JSONSchemaProps{
+	new := &apiextensionsv1.JSONSchemaProps{
 		Type: "object",
-		Properties: map[string]apiextensions.JSONSchemaProps{
+		Properties: map[string]apiextensionsv1.JSONSchemaProps{
 			"existing": {
 				Type: "string",
 			},
@@ -38,9 +38,9 @@ func TestSuccessNewHasMoreProperties(t *testing.T) {
 }
 
 func TestErrorNewHasLessProperties(t *testing.T) {
-	existing := &apiextensions.JSONSchemaProps{
+	existing := &apiextensionsv1.JSONSchemaProps{
 		Type: "object",
-		Properties: map[string]apiextensions.JSONSchemaProps{
+		Properties: map[string]apiextensionsv1.JSONSchemaProps{
 			"existing": {
 				Type: "string",
 			},
@@ -49,9 +49,9 @@ func TestErrorNewHasLessProperties(t *testing.T) {
 			},
 		},
 	}
-	new := &apiextensions.JSONSchemaProps{
+	new := &apiextensionsv1.JSONSchemaProps{
 		Type: "object",
-		Properties: map[string]apiextensions.JSONSchemaProps{
+		Properties: map[string]apiextensionsv1.JSONSchemaProps{
 			"existing": {
 				Type: "string",
 			},
@@ -78,9 +78,9 @@ func TestErrorNewHasLessProperties(t *testing.T) {
 }
 
 func TestSuccessNewHasLessPropertiesNarrowExisting(t *testing.T) {
-	existing := &apiextensions.JSONSchemaProps{
+	existing := &apiextensionsv1.JSONSchemaProps{
 		Type: "object",
-		Properties: map[string]apiextensions.JSONSchemaProps{
+		Properties: map[string]apiextensionsv1.JSONSchemaProps{
 			"existing": {
 				Type: "string",
 			},
@@ -89,9 +89,9 @@ func TestSuccessNewHasLessPropertiesNarrowExisting(t *testing.T) {
 			},
 		},
 	}
-	new := &apiextensions.JSONSchemaProps{
+	new := &apiextensionsv1.JSONSchemaProps{
 		Type: "object",
-		Properties: map[string]apiextensions.JSONSchemaProps{
+		Properties: map[string]apiextensionsv1.JSONSchemaProps{
 			"existing": {
 				Type: "string",
 			},
@@ -104,12 +104,12 @@ func TestSuccessNewHasLessPropertiesNarrowExisting(t *testing.T) {
 }
 
 func TestSuccessNewAllowsAnyPropertiesOfAschemaCompatibleWithAllExistingProperties(t *testing.T) {
-	existing := &apiextensions.JSONSchemaProps{
+	existing := &apiextensionsv1.JSONSchemaProps{
 		Type: "object",
-		Properties: map[string]apiextensions.JSONSchemaProps{
+		Properties: map[string]apiextensionsv1.JSONSchemaProps{
 			"prop1": {
 				Type: "object",
-				Properties: map[string]apiextensions.JSONSchemaProps{
+				Properties: map[string]apiextensionsv1.JSONSchemaProps{
 					"subProp1": {
 						Type: "string",
 					},
@@ -117,7 +117,7 @@ func TestSuccessNewAllowsAnyPropertiesOfAschemaCompatibleWithAllExistingProperti
 			},
 			"prop2": {
 				Type: "object",
-				Properties: map[string]apiextensions.JSONSchemaProps{
+				Properties: map[string]apiextensionsv1.JSONSchemaProps{
 					"subProp1": {
 						Type: "string",
 					},
@@ -128,12 +128,12 @@ func TestSuccessNewAllowsAnyPropertiesOfAschemaCompatibleWithAllExistingProperti
 			},
 		},
 	}
-	new := &apiextensions.JSONSchemaProps{
+	new := &apiextensionsv1.JSONSchemaProps{
 		Type: "object",
-		AdditionalProperties: &apiextensions.JSONSchemaPropsOrBool{
-			Schema: &apiextensions.JSONSchemaProps{
+		AdditionalProperties: &apiextensionsv1.JSONSchemaPropsOrBool{
+			Schema: &apiextensionsv1.JSONSchemaProps{
 				Type: "object",
-				Properties: map[string]apiextensions.JSONSchemaProps{
+				Properties: map[string]apiextensionsv1.JSONSchemaProps{
 					"subProp1": {
 						Type: "string",
 					},
@@ -151,12 +151,12 @@ func TestSuccessNewAllowsAnyPropertiesOfAschemaCompatibleWithAllExistingProperti
 }
 
 func TestErrorNewAllowsAnyPropertiesOfAschemaNotCompatibleWithAllExistingProperties(t *testing.T) {
-	existing := &apiextensions.JSONSchemaProps{
+	existing := &apiextensionsv1.JSONSchemaProps{
 		Type: "object",
-		Properties: map[string]apiextensions.JSONSchemaProps{
+		Properties: map[string]apiextensionsv1.JSONSchemaProps{
 			"prop1": {
 				Type: "object",
-				Properties: map[string]apiextensions.JSONSchemaProps{
+				Properties: map[string]apiextensionsv1.JSONSchemaProps{
 					"subProp1": {
 						Type: "string",
 					},
@@ -164,7 +164,7 @@ func TestErrorNewAllowsAnyPropertiesOfAschemaNotCompatibleWithAllExistingPropert
 			},
 			"prop2": {
 				Type: "object",
-				Properties: map[string]apiextensions.JSONSchemaProps{
+				Properties: map[string]apiextensionsv1.JSONSchemaProps{
 					"subProp1": {
 						Type: "string",
 					},
@@ -175,13 +175,13 @@ func TestErrorNewAllowsAnyPropertiesOfAschemaNotCompatibleWithAllExistingPropert
 			},
 		},
 	}
-	new := &apiextensions.JSONSchemaProps{
+	new := &apiextensionsv1.JSONSchemaProps{
 		Type: "object",
-		AdditionalProperties: &apiextensions.JSONSchemaPropsOrBool{
+		AdditionalProperties: &apiextensionsv1.JSONSchemaPropsOrBool{
 			Allows: false,
-			Schema: &apiextensions.JSONSchemaProps{
+			Schema: &apiextensionsv1.JSONSchemaProps{
 				Type: "object",
-				Properties: map[string]apiextensions.JSONSchemaProps{
+				Properties: map[string]apiextensionsv1.JSONSchemaProps{
 					"subProp1": {
 						Type: "string",
 					},
@@ -211,17 +211,17 @@ func TestErrorNewAllowsAnyPropertiesOfAschemaNotCompatibleWithAllExistingPropert
 }
 
 func TestSuccessNewAllowsAnyPropertiesOfAnySchema(t *testing.T) {
-	existing := &apiextensions.JSONSchemaProps{
+	existing := &apiextensionsv1.JSONSchemaProps{
 		Type: "object",
-		Properties: map[string]apiextensions.JSONSchemaProps{
+		Properties: map[string]apiextensionsv1.JSONSchemaProps{
 			"existing": {
 				Type: "string",
 			},
 		},
 	}
-	new := &apiextensions.JSONSchemaProps{
+	new := &apiextensionsv1.JSONSchemaProps{
 		Type: "object",
-		AdditionalProperties: &apiextensions.JSONSchemaPropsOrBool{
+		AdditionalProperties: &apiextensionsv1.JSONSchemaPropsOrBool{
 			Allows: true,
 		},
 	}

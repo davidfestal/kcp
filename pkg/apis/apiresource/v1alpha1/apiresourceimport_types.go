@@ -18,11 +18,9 @@ type APIResourceImport struct {
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	// Spec holds the desired state.
 	// +optional
 	Spec APIResourceImportSpec `json:"spec,omitempty"`
 
-	// Status communicates the observed state.
 	// +optional
 	Status APIResourceImportStatus `json:"status,omitempty"`
 }
@@ -48,7 +46,7 @@ const (
 	// the schema of the resource import and the schema of the already-existing negociated API resource.
 	// Of course this is not valid if the negociated API resource has been "enforced" by applying a CRD for
 	// the same GVR manually 
-	UpdateUnpublished APIResourceImportConditionType = "UpdateUnpublished"
+	UpdateUnpublished SchemaUpdateStrategyType = "UpdateUnpublished"
 
 	// UpdateUnpublished means that the corresponding negociated API Resource will be modified
 	// to take in account the schema of the API resource import, even if the already-existing
@@ -57,12 +55,12 @@ const (
 	// the schema of the resource import and the schema of the already-existing negociated API resource.
 	// Of course this is not valid if the negociated API resource has been "enforced" by applying a CRD for
 	// the same GVR manually 
-	UpdatePublished APIResourceImportConditionType = "UpdatePublished"
+	UpdatePublished SchemaUpdateStrategyType = "UpdatePublished"
 )
 
 // APIResourceImportSpec holds the desired state of the APIResourceImport (from the client).
 type APIResourceImportSpec struct {
-	CommonAPIResourceSpec
+	CommonAPIResourceSpec `json:",inline"`
 
 	// SchemaUpdateStrategy defines the schema update strategy for this API Resource import.
 	// Default value is UpdateUnpublished
@@ -78,11 +76,14 @@ const (
 	// Compatible means that this API Resource import is compatible with the current 
 	// Negociated API Resource
 	Compatible APIResourceImportConditionType = "Compatible"
+	// Available means that this API Resource import is compatible with the current 
+	// Negociated API Resource, which has been published as a CRD
+	Available APIResourceImportConditionType = "Available"
 )
 
 // APIResourceImportCondition contains details for the current condition of this negociated api resource.
 type APIResourceImportCondition struct {
-	// Type is the type of the condition. Types include Established, NamesAccepted and Terminating.
+	// Type is the type of the condition. Types include Compatible.
 	Type APIResourceImportConditionType `json:"type"`
 	// Status is the status of the condition.
 	// Can be True, False, Unknown.

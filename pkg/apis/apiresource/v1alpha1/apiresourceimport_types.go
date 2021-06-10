@@ -76,6 +76,10 @@ type APIResourceImportSpec struct {
 	//
 	// +optional 
 	SchemaUpdateStrategy  SchemaUpdateStrategyType `json:"schemaUpdateStrategy,omitempty"`
+
+	// Locaton the API resource is imported from
+	// This field is required
+	Location string `json:"location"`
 }
 
 // APIResourceImportConditionType is a valid value for APIResourceImportCondition.Type

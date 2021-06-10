@@ -83,6 +83,9 @@ spec:
                 type: string
               publish:
                 type: boolean
+              scope:
+                description: ResourceScope is an enum defining the different scopes available to a custom resource
+                type: string
               shortNames:
                 description: shortNames are short names for the resource, exposed in API discovery documents, and used by clients to support invocations like `kubectl get <shortname>`. It must be all lowercase.
                 items:
@@ -105,10 +108,9 @@ spec:
             required:
             - group
             - kind
-            - listKind
             - openAPIV3Schema
             - plural
-            - singular
+            - scope
             - version
             type: object
           status:

@@ -168,16 +168,7 @@ func (in *ColumnDefinition) DeepCopy() *ColumnDefinition {
 func (in *CommonAPIResourceSpec) DeepCopyInto(out *CommonAPIResourceSpec) {
 	*out = *in
 	out.GroupVersion = in.GroupVersion
-	if in.ShortNames != nil {
-		in, out := &in.ShortNames, &out.ShortNames
-		*out = make([]string, len(*in))
-		copy(*out, *in)
-	}
-	if in.Categories != nil {
-		in, out := &in.Categories, &out.Categories
-		*out = make([]string, len(*in))
-		copy(*out, *in)
-	}
+	in.CustomResourceDefinitionNames.DeepCopyInto(&out.CustomResourceDefinitionNames)
 	in.OpenAPIV3Schema.DeepCopyInto(&out.OpenAPIV3Schema)
 	if in.SubResources != nil {
 		in, out := &in.SubResources, &out.SubResources

@@ -58,6 +58,15 @@ const (
 	UpdatePublished SchemaUpdateStrategyType = "UpdatePublished"
 )
 
+func (strategy SchemaUpdateStrategyType) CanUdpate(negociatedAPIResourceIsPublished bool) bool {
+	switch strategy {
+	case UpdateNever: return false
+	case UpdateUnpublished: return !negociatedAPIResourceIsPublished
+	case UpdatePublished: return true
+	}
+	return false
+}
+
 // APIResourceImportSpec holds the desired state of the APIResourceImport (from the client).
 type APIResourceImportSpec struct {
 	CommonAPIResourceSpec `json:",inline"`

@@ -156,7 +156,7 @@ func (c *Controller) isManuallyCreatedCRD(ctx context.Context, crd *apiextension
 // and then updates the schema of the Negociated API Resource of each CRD version
 func (c *Controller) enforceCRDToNegociatedAPIResource(ctx context.Context, clusterName string, gvr metav1.GroupVersionResource, crd *apiextensionsv1.CustomResourceDefinition) error {
 	for _, version := range crd.Spec.Versions {
-		objects, err := c.negociatedApiResourceIndexer.ByIndex(clusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(
+		objects, err := c.negociatedApiResourceIndexer.ByIndex(ClusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(
 			clusterName,
 			metav1.GroupVersionResource{
 				Group:    gvr.Group,
@@ -190,7 +190,7 @@ func (c *Controller) enforceCRDToNegociatedAPIResource(ctx context.Context, clus
 // updatePublishingStatusOnNegociatedAPIResources sets the status (Published / Refused) on the Negociated API Resource of each CRD version
 func (c *Controller) updatePublishingStatusOnNegociatedAPIResources(ctx context.Context, clusterName string, gvr metav1.GroupVersionResource, crd *apiextensionsv1.CustomResourceDefinition) error {
 	for _, version := range crd.Spec.Versions {
-		objects, err := c.negociatedApiResourceIndexer.ByIndex(clusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(
+		objects, err := c.negociatedApiResourceIndexer.ByIndex(ClusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(
 			clusterName,
 			metav1.GroupVersionResource{
 				Group:    gvr.Group,
@@ -250,7 +250,7 @@ func (c *Controller) deleteNegociatedAPIResource(ctx context.Context, clusterNam
 		}
 	}
 	for _, gvrToDelete := range gvrsToDelete {
-		objs, err := c.negociatedApiResourceIndexer.ByIndex(clusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(clusterName, gvrToDelete))
+		objs, err := c.negociatedApiResourceIndexer.ByIndex(ClusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(clusterName, gvrToDelete))
 		if err != nil {
 			klog.Warningf("NegociatedAPIResource for GVR %s could not be searched in index, and could not be deleted: %v", gvr.String(), err)
 		}
@@ -279,7 +279,7 @@ func (c *Controller) ensureAPIResourceCompatibility(ctx context.Context, cluster
 	//    Update the current APIResourceImport status accordingly (possibly reporting errors).
 
 	var negociatedAPIResource *apiresourcev1alpha1.NegociatedAPIResource
-	objs, err := c.negociatedApiResourceIndexer.ByIndex(clusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(clusterName, gvr))
+	objs, err := c.negociatedApiResourceIndexer.ByIndex(ClusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(clusterName, gvr))
 	if err != nil {
 		return err
 	}
@@ -291,7 +291,7 @@ func (c *Controller) ensureAPIResourceCompatibility(ctx context.Context, cluster
 	if apiResourceImport != nil {
 		apiResourcesImports = append(apiResourcesImports, apiResourceImport)
 	} else {
-		objs, err := c.apiResourceImportIndexer.ByIndex(clusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(clusterName, gvr))
+		objs, err := c.apiResourceImportIndexer.ByIndex(ClusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(clusterName, gvr))
 		if err != nil {
 			return err
 		}
@@ -404,7 +404,7 @@ func (c *Controller) updateGVRLabel(ctx context.Context, clusterName string, gvr
 
 // negociatedAPIResourceIsOrphan detects if there is no other APIResourceImport for this GVR and the current negociated API resource is not enforced.
 func (c *Controller) negociatedAPIResourceIsOrphan(ctx context.Context, clusterName string, gvr metav1.GroupVersionResource) (bool, error) {
-	objs, err := c.apiResourceImportIndexer.ByIndex(clusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(clusterName, gvr))
+	objs, err := c.apiResourceImportIndexer.ByIndex(ClusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(clusterName, gvr))
 	if err != nil {
 		return false, err
 	}
@@ -413,7 +413,7 @@ func (c *Controller) negociatedAPIResourceIsOrphan(ctx context.Context, clusterN
 		return false, nil
 	}
 
-	objs, err = c.negociatedApiResourceIndexer.ByIndex(clusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(clusterName, gvr))
+	objs, err = c.negociatedApiResourceIndexer.ByIndex(ClusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(clusterName, gvr))
 	if err != nil {
 		return false, err
 	}
@@ -566,7 +566,7 @@ func (c *Controller) publishNegociatedResource(ctx context.Context, clusterName 
 // updateStatusOnRelatedAPIResourceImports udates the status of related compatible APIResourceImports, to set the `Available` condition to `true`
 func (c *Controller) updateStatusOnRelatedAPIResourceImports(ctx context.Context, clusterName string, gvr metav1.GroupVersionResource, negociatedApiResource *apiresourcev1alpha1.NegociatedAPIResource) error {
 	if negociatedApiResource.IsConditionTrue(apiresourcev1alpha1.Published) {
-		objs, err := c.apiResourceImportIndexer.ByIndex(clusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(clusterName, gvr))
+		objs, err := c.apiResourceImportIndexer.ByIndex(ClusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(clusterName, gvr))
 		if err != nil {
 			return err
 		}
@@ -588,7 +588,7 @@ func (c *Controller) updateStatusOnRelatedAPIResourceImports(ctx context.Context
 func (c *Controller) cleanupNegociatedAPIResource(ctx context.Context, clusterName string, gvr metav1.GroupVersionResource, negociatedApiResource *apiresourcev1alpha1.NegociatedAPIResource) error {
 	// In any case change the status on every APIResourceImport with the same GVR, to remove Compatible and Available conditions.
 
-	objs, err := c.apiResourceImportIndexer.ByIndex(clusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(clusterName, gvr))
+	objs, err := c.apiResourceImportIndexer.ByIndex(ClusterNameAndGVRIndexName, GetClusterNameAndGVRIndexKey(clusterName, gvr))
 	if err != nil {
 		return err
 	}

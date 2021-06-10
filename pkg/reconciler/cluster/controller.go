@@ -5,10 +5,13 @@ import (
 	"io/ioutil"
 	"time"
 
-	"github.com/kcp-dev/kcp/pkg/apis/cluster/v1alpha1"
-	clusterclient "github.com/kcp-dev/kcp/pkg/client/clientset/versioned"
-	clusterv1alpha1 "github.com/kcp-dev/kcp/pkg/client/clientset/versioned/typed/cluster/v1alpha1"
+	clusterv1alpha1 "github.com/kcp-dev/kcp/pkg/apis/cluster/v1alpha1"
+	apiresourcev1alpha1 "github.com/kcp-dev/kcp/pkg/apis/apiresource/v1alpha1"
+	versionedclient "github.com/kcp-dev/kcp/pkg/client/clientset/versioned"
+	typedcluster        "github.com/kcp-dev/kcp/pkg/client/clientset/versioned/typed/cluster/v1alpha1"
+	typedapiresource        "github.com/kcp-dev/kcp/pkg/client/clientset/versioned/typed/apiresource/v1alpha1"
 	"github.com/kcp-dev/kcp/pkg/client/informers/externalversions"
+	"github.com/kcp-dev/kcp/pkg/reconciler/apiresource"
 	"github.com/kcp-dev/kcp/pkg/syncer"
 	"github.com/kcp-dev/kcp/pkg/util/errors"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -41,7 +44,6 @@ const (
 //
 // When new Clusters are found, the syncer will be run there using the given image.
 func NewController(cfg *rest.Config, syncerImage string, kubeconfig clientcmdapi.Config, resourcesToSync []string, syncerMode SyncerMode) *Controller {
-	client := clusterv1alpha1.NewForConfigOrDie(cfg)
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	stopCh := make(chan struct{}) // TODO: hook this up to SIGTERM/SIGINT
 
@@ -49,7 +51,8 @@ func NewController(cfg *rest.Config, syncerImage string, kubeconfig clientcmdapi
 
 	c := &Controller{
 		queue:           queue,
-		client:          client,
+		clusterClient:          typedcluster.NewForConfigOrDie(cfg),
+		apiResourceClient:      typedapiresource.NewForConfigOrDie(cfg),
 		crdClient:       crdClient,
 		syncerImage:     syncerImage,
 		kubeconfig:      kubeconfig,
@@ -59,13 +62,59 @@ func NewController(cfg *rest.Config, syncerImage string, kubeconfig clientcmdapi
 		syncers:         map[string]*syncer.Syncer{},
 	}
 
-	sif := externalversions.NewSharedInformerFactoryWithOptions(clusterclient.NewForConfigOrDie(cfg), resyncPeriod)
+	sif := externalversions.NewSharedInformerFactoryWithOptions(versionedclient.NewForConfigOrDie(cfg), resyncPeriod)
 	sif.Cluster().V1alpha1().Clusters().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { c.enqueue(obj) },
 		UpdateFunc: func(_, obj interface{}) { c.enqueue(obj) },
 		DeleteFunc: func(obj interface{}) { c.deletedCluster(obj) },
 	})
-	c.indexer = sif.Cluster().V1alpha1().Clusters().Informer().GetIndexer()
+	c.clusterIndexer = sif.Cluster().V1alpha1().Clusters().Informer().GetIndexer()
+
+	enqueueRelatedCluster := func(obj interface{}) {
+		var apiResourceImport *apiresourcev1alpha1.APIResourceImport
+		switch typedObj := obj.(type) {
+		case *apiresourcev1alpha1.APIResourceImport:
+			apiResourceImport = typedObj
+		case cache.DeletedFinalStateUnknown:
+			deletedImport, ok := typedObj.Obj.(*apiresourcev1alpha1.APIResourceImport)
+			if ok {
+				apiResourceImport = deletedImport
+			}
+		}
+		if apiResourceImport != nil {
+			c.enqueue(metav1.PartialObjectMetadata{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: apiResourceImport.Name,
+					ClusterName: apiResourceImport.ClusterName,
+				},
+			})
+		}
+	}
+
+	sif.Apiresource().V1alpha1().APIResourceImports().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		UpdateFunc: func(_, obj interface{}) {
+			enqueueRelatedCluster(obj)
+		},
+		DeleteFunc: func(obj interface{}) {
+			enqueueRelatedCluster(obj)
+		},
+	})
+	c.apiresourceImportIndexer = sif.Cluster().V1alpha1().Clusters().Informer().GetIndexer()
+	c.apiresourceImportIndexer.AddIndexers(map[string]cache.IndexFunc {
+		apiresource.ClusterNameAndGVRIndexName: func(obj interface{}) ([]string, error) {
+			if negociatedApiResource, ok := obj.(*apiresourcev1alpha1.NegociatedAPIResource); ok {
+				return []string{ apiresource.GetClusterNameAndGVRIndexKey(negociatedApiResource.ClusterName, negociatedApiResource.GVR()) }, nil
+			}
+			return []string{}, nil
+		},
+		"cluster": func(obj interface{}) ([]string, error) {
+			if apiResourceImport, ok := obj.(*apiresourcev1alpha1.APIResourceImport); ok {
+				return []string{ apiResourceImport.ClusterName + "/" + apiResourceImport.Spec.Location }, nil
+			}
+			return []string{}, nil
+		},
+	})
+
 	sif.WaitForCacheSync(stopCh)
 	sif.Start(stopCh)
 
@@ -73,8 +122,10 @@ func NewController(cfg *rest.Config, syncerImage string, kubeconfig clientcmdapi
 }
 type Controller struct {
 	queue           workqueue.RateLimitingInterface
-	client          clusterv1alpha1.ClusterV1alpha1Interface
-	indexer         cache.Indexer
+	clusterClient          typedcluster.ClusterV1alpha1Interface
+	apiResourceClient      typedapiresource.ApiresourceV1alpha1Interface
+	clusterIndexer         cache.Indexer
+	apiresourceImportIndexer         cache.Indexer
 	crdClient       apiextensionsv1client.ApiextensionsV1Interface
 	syncerImage     string
 	kubeconfig      clientcmdapi.Config
@@ -82,6 +133,7 @@ type Controller struct {
 	resourcesToSync []string
 	syncerMode      SyncerMode
 	syncers         map[string]*syncer.Syncer
+	apiImporters    map[string]*APIImporter
 }
 
 func (c *Controller) enqueue(obj interface{}) {
@@ -148,7 +200,7 @@ func (c *Controller) handleErr(err error, key string) {
 }
 
 func (c *Controller) process(key string) error {
-	obj, exists, err := c.indexer.GetByKey(key)
+	obj, exists, err := c.clusterIndexer.GetByKey(key)
 	if err != nil {
 		return err
 	}
@@ -157,7 +209,7 @@ func (c *Controller) process(key string) error {
 		klog.Errorf("Object with key %q was deleted", key)
 		return nil
 	}
-	current := obj.(*v1alpha1.Cluster)
+	current := obj.(*clusterv1alpha1.Cluster)
 	previous := current.DeepCopy()
 
 	ctx := context.TODO()
@@ -168,7 +220,7 @@ func (c *Controller) process(key string) error {
 
 	// If the object being reconciled changed as a result, update it.
 	if !equality.Semantic.DeepEqual(previous.Status, current.Status) {
-		_, uerr := c.client.Clusters().UpdateStatus(ctx, current, metav1.UpdateOptions{})
+		_, uerr := c.clusterClient.Clusters().UpdateStatus(ctx, current, metav1.UpdateOptions{})
 		return uerr
 	}
 
@@ -176,14 +228,14 @@ func (c *Controller) process(key string) error {
 }
 
 func (c *Controller) deletedCluster(obj interface{}) {
-	castObj, ok := obj.(*v1alpha1.Cluster)
+	castObj, ok := obj.(*clusterv1alpha1.Cluster)
 	if !ok {
 		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
 		if !ok {
 			klog.Errorf("Couldn't get object from tombstone %#v", obj)
 			return
 		}
-		castObj, ok = tombstone.Obj.(*v1alpha1.Cluster)
+		castObj, ok = tombstone.Obj.(*clusterv1alpha1.Cluster)
 		if !ok {
 			klog.Errorf("Tombstone contained object that is not expected %#v", obj)
 			return

@@ -31,7 +31,7 @@ import (
 )
 
 const resyncPeriod = 10 * time.Hour
-const clusterNameAndGVRIndexName = "clusterNameAndGVR"
+const ClusterNameAndGVRIndexName = "clusterNameAndGVR"
 
 func GetClusterNameAndGVRIndexKey(clusterName string, gvr metav1.GroupVersionResource) string {
 	return clusterName + "$" + gvr.String()
@@ -60,7 +60,7 @@ func NewController(cfg *rest.Config, autoPublishNegociatedAPIResource bool) *Con
 	})
 	c.negociatedApiResourceIndexer = apiresourceSif.Apiresource().V1alpha1().NegociatedAPIResources().Informer().GetIndexer()
 	c.negociatedApiResourceIndexer.AddIndexers(map[string]cache.IndexFunc {
-		clusterNameAndGVRIndexName: func(obj interface{}) ([]string, error) {
+		ClusterNameAndGVRIndexName: func(obj interface{}) ([]string, error) {
 			if negociatedApiResource, ok := obj.(*apiresourcev1alpha1.NegociatedAPIResource); ok {
 				return []string{ GetClusterNameAndGVRIndexKey(negociatedApiResource.ClusterName, negociatedApiResource.GVR()) }, nil
 			}
@@ -75,7 +75,7 @@ func NewController(cfg *rest.Config, autoPublishNegociatedAPIResource bool) *Con
 	})
 	c.apiResourceImportIndexer = apiresourceSif.Apiresource().V1alpha1().APIResourceImports().Informer().GetIndexer()
 	c.apiResourceImportIndexer.AddIndexers(map[string]cache.IndexFunc {
-		clusterNameAndGVRIndexName: func(obj interface{}) ([]string, error) {
+		ClusterNameAndGVRIndexName: func(obj interface{}) ([]string, error) {
 			if apiResourceImport, ok := obj.(*apiresourcev1alpha1.APIResourceImport); ok {
 				return []string{ GetClusterNameAndGVRIndexKey(apiResourceImport.ClusterName, apiResourceImport.GVR())}, nil
 			}
@@ -95,7 +95,7 @@ func NewController(cfg *rest.Config, autoPublishNegociatedAPIResource bool) *Con
 	})
 	c.crdIndexer = crdSif.Apiextensions().V1().CustomResourceDefinitions().Informer().GetIndexer()
 	c.crdIndexer.AddIndexers(map[string]cache.IndexFunc {
-		clusterNameAndGVRIndexName: func(obj interface{}) ([]string, error) {
+		ClusterNameAndGVRIndexName: func(obj interface{}) ([]string, error) {
 			if crd, ok := obj.(*apiextensionsv1.CustomResourceDefinition); ok {
 				return []string{ GetClusterNameAndGVRIndexKey(crd.ClusterName, metav1.GroupVersionResource{
 					Group: crd.Spec.Group,

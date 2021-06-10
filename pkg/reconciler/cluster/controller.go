@@ -56,7 +56,7 @@ func NewController(cfg *rest.Config, syncerImage string, kubeconfig clientcmdapi
 		stopCh:          stopCh,
 		resourcesToSync: resourcesToSync,
 		syncerMode:      syncerMode,
-		syncers:         map[string]*Syncer{},
+		syncers:         map[string]*syncer.Syncer{},
 	}
 
 	sif := externalversions.NewSharedInformerFactoryWithOptions(clusterclient.NewForConfigOrDie(cfg), resyncPeriod)
@@ -71,17 +71,6 @@ func NewController(cfg *rest.Config, syncerImage string, kubeconfig clientcmdapi
 
 	return c
 }
-
-type Syncer struct {
-	specSyncer   *syncer.Controller
-	statusSyncer *syncer.Controller
-}
-
-func (s *Syncer) Stop() {
-	s.specSyncer.Stop()
-	s.statusSyncer.Stop()
-}
-
 type Controller struct {
 	queue           workqueue.RateLimitingInterface
 	client          clusterv1alpha1.ClusterV1alpha1Interface
@@ -92,7 +81,7 @@ type Controller struct {
 	stopCh          chan struct{}
 	resourcesToSync []string
 	syncerMode      SyncerMode
-	syncers         map[string]*Syncer
+	syncers         map[string]*syncer.Syncer
 }
 
 func (c *Controller) enqueue(obj interface{}) {

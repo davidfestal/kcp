@@ -1,4 +1,4 @@
-package crdnegociation
+package crdnegotiation
 
 import (
 	"testing"

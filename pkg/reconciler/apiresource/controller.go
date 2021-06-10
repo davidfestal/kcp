@@ -37,7 +37,7 @@ func GetClusterNameAndGVRIndexKey(clusterName string, gvr metav1.GroupVersionRes
 	return clusterName + "$" + gvr.String()
 }
 
-func NewController(cfg *rest.Config) *Controller {
+func NewController(cfg *rest.Config, autoPublishNegociatedAPIResource bool) *Controller {
 	apiresourceClient := typedapiresource.NewForConfigOrDie(cfg)
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	stopCh := make(chan struct{}) // TODO: hook this up to SIGTERM/SIGINT
@@ -49,6 +49,7 @@ func NewController(cfg *rest.Config) *Controller {
 		apiresourceClient: apiresourceClient,
 		crdClient:         crdClient,
 		stopCh:            stopCh,
+		AutoPublishNegociatedAPIResource: autoPublishNegociatedAPIResource,
 	}
 
 	apiresourceSif := kcpexternalversions.NewSharedInformerFactoryWithOptions(kcpclient.NewForConfigOrDie(cfg), resyncPeriod)
@@ -60,7 +61,7 @@ func NewController(cfg *rest.Config) *Controller {
 	c.negociatedApiResourceIndexer = apiresourceSif.Apiresource().V1alpha1().NegociatedAPIResources().Informer().GetIndexer()
 	c.negociatedApiResourceIndexer.AddIndexers(map[string]cache.IndexFunc {
 		clusterNameAndGVRIndexName: func(obj interface{}) ([]string, error) {
-			if negociatedApiResource, ok := obj.(apiresourcev1alpha1.NegociatedAPIResource); ok {
+			if negociatedApiResource, ok := obj.(*apiresourcev1alpha1.NegociatedAPIResource); ok {
 				return []string{ GetClusterNameAndGVRIndexKey(negociatedApiResource.ClusterName, negociatedApiResource.GVR()) }, nil
 			}
 			return []string{}, nil
@@ -75,7 +76,7 @@ func NewController(cfg *rest.Config) *Controller {
 	c.apiResourceImportIndexer = apiresourceSif.Apiresource().V1alpha1().APIResourceImports().Informer().GetIndexer()
 	c.apiResourceImportIndexer.AddIndexers(map[string]cache.IndexFunc {
 		clusterNameAndGVRIndexName: func(obj interface{}) ([]string, error) {
-			if apiResourceImport, ok := obj.(apiresourcev1alpha1.APIResourceImport); ok {
+			if apiResourceImport, ok := obj.(*apiresourcev1alpha1.APIResourceImport); ok {
 				return []string{ GetClusterNameAndGVRIndexKey(apiResourceImport.ClusterName, apiResourceImport.GVR())}, nil
 			}
 			return []string{}, nil
@@ -93,6 +94,17 @@ func NewController(cfg *rest.Config) *Controller {
 		DeleteFunc: func(obj interface{}) { c.enqueue(Delete, nil, obj) },
 	})
 	c.crdIndexer = crdSif.Apiextensions().V1().CustomResourceDefinitions().Informer().GetIndexer()
+	c.crdIndexer.AddIndexers(map[string]cache.IndexFunc {
+		clusterNameAndGVRIndexName: func(obj interface{}) ([]string, error) {
+			if crd, ok := obj.(*apiextensionsv1.CustomResourceDefinition); ok {
+				return []string{ GetClusterNameAndGVRIndexKey(crd.ClusterName, metav1.GroupVersionResource{
+					Group: crd.Spec.Group,
+					Resource: crd.Spec.Names.Plural,
+				})}, nil
+			}
+			return []string{}, nil
+		},
+	})	
 	c.crdLister = crdSif.Apiextensions().V1().CustomResourceDefinitions().Lister()
 	crdSif.WaitForCacheSync(stopCh)
 	crdSif.Start(stopCh)
@@ -115,6 +127,7 @@ type Controller struct {
 
 	kubeconfig clientcmdapi.Config
 	stopCh     chan struct{}
+	AutoPublishNegociatedAPIResource bool
 }
 
 type QueueElementType string

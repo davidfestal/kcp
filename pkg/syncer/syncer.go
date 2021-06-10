@@ -24,6 +24,42 @@ import (
 
 const resyncPeriod = 10 * time.Hour
 
+type Syncer struct {
+	specSyncer   *Controller
+	statusSyncer *Controller
+	Resources sets.String
+}
+
+func (s *Syncer) Stop() {
+	s.specSyncer.Stop()
+	s.statusSyncer.Stop()
+}
+
+func (s *Syncer) WaitUntilDone() {
+	<-s.specSyncer.Done()
+	<-s.statusSyncer.Done()
+}
+
+func StartSyncer(upstream, downstream *rest.Config, resources sets.String, cluster string, numSyncerThreads int) (* Syncer, error) {
+	specSyncer, err := NewSpecSyncer(upstream, downstream, resources.List(), cluster)
+	if err != nil {
+		return nil, err
+	}
+	statusSyncer, err := NewStatusSyncer(downstream, upstream, resources.List(), cluster)
+	if err != nil {
+		specSyncer.Stop()
+		return nil, err
+	}
+	specSyncer.Start(numSyncerThreads)
+	statusSyncer.Start(numSyncerThreads)
+	return &Syncer {
+		specSyncer: specSyncer,
+		statusSyncer: statusSyncer,
+		Resources: resources,
+	}, nil
+}
+
+
 type UpsertFunc func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured) error
 type DeleteFunc func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace, name string) error
 type HandlersProvider func(c *Controller, gvr schema.GroupVersionResource) cache.ResourceEventHandlerFuncs

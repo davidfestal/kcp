@@ -170,7 +170,7 @@ func (c *Controller) reconcile(ctx context.Context, cluster *v1alpha1.Cluster) e
 				return nil // Don't retry.
 			}
 
-			specSyncer, err := syncer.NewSpecSyncer(upstream, downstream, resources.List(), cluster.Name)
+			syncer, err := syncer.StartSyncer(upstream, downstream, resources, cluster.Name, numSyncerThreads)
 			if err != nil {
 				klog.Errorf("error starting syncer in push mode: %v", err)
 				cluster.Status.SetConditionReady(corev1.ConditionFalse,
@@ -178,21 +178,8 @@ func (c *Controller) reconcile(ctx context.Context, cluster *v1alpha1.Cluster) e
 					fmt.Sprintf("Error starting syncer: %v", err))
 				return err
 			}
-			statusSyncer, err := syncer.NewStatusSyncer(downstream, upstream, resources.List(), cluster.Name)
-			if err != nil {
-				specSyncer.Stop()
-				klog.Errorf("error starting syncer in push mode: %v", err)
-				cluster.Status.SetConditionReady(corev1.ConditionFalse,
-					"ErrorStartingSyncer",
-					fmt.Sprintf("Error starting syncer: %v", err))
-				return err
-			}
-			c.syncers[cluster.Name] = &Syncer{
-				specSyncer:   specSyncer,
-				statusSyncer: statusSyncer,
-			}
-			specSyncer.Start(numSyncerThreads)
-			statusSyncer.Start(numSyncerThreads)
+			c.syncers[cluster.Name] = syncer
+		
 			klog.Info("syncer ready!")
 			cluster.Status.SetConditionReady(corev1.ConditionTrue,
 				"SyncerReady",

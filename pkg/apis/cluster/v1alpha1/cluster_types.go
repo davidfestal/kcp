@@ -52,6 +52,9 @@ type ClusterSpec struct {
 // ClusterStatus communicates the observed state of the Cluster (from the controller).
 type ClusterStatus struct {
 	Conditions Conditions `json:"conditions,omitempty"`
+	
+	// +optional
+	SyncedResources []string `json:"syncedResources,omitempty"`
 }
 
 func (cs *ClusterStatus) SetConditionReady(status corev1.ConditionStatus, reason, message string) {

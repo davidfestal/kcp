@@ -3,13 +3,15 @@ package cluster
 import (
 	"context"
 	"io/ioutil"
+	"reflect"
+	"strings"
 	"time"
 
-	clusterv1alpha1 "github.com/kcp-dev/kcp/pkg/apis/cluster/v1alpha1"
 	apiresourcev1alpha1 "github.com/kcp-dev/kcp/pkg/apis/apiresource/v1alpha1"
+	clusterv1alpha1 "github.com/kcp-dev/kcp/pkg/apis/cluster/v1alpha1"
 	versionedclient "github.com/kcp-dev/kcp/pkg/client/clientset/versioned"
-	typedcluster        "github.com/kcp-dev/kcp/pkg/client/clientset/versioned/typed/cluster/v1alpha1"
-	typedapiresource        "github.com/kcp-dev/kcp/pkg/client/clientset/versioned/typed/apiresource/v1alpha1"
+	typedapiresource "github.com/kcp-dev/kcp/pkg/client/clientset/versioned/typed/apiresource/v1alpha1"
+	typedcluster "github.com/kcp-dev/kcp/pkg/client/clientset/versioned/typed/cluster/v1alpha1"
 	"github.com/kcp-dev/kcp/pkg/client/informers/externalversions"
 	"github.com/kcp-dev/kcp/pkg/reconciler/apiresource"
 	"github.com/kcp-dev/kcp/pkg/syncer"
@@ -39,6 +41,18 @@ const (
 	SyncerModeNone
 )
 
+const GVRForLocationInLogicalClusterIndexName = "GVRForLocationInLogicalCluster"
+
+func GetGVRForLocationInLogicalClusterIndexKey(location, clusterName string, gvr metav1.GroupVersionResource) string {
+	return location + "$$" + apiresource.GetClusterNameAndGVRIndexKey(clusterName, gvr)
+}
+
+const LocationInLogicalClusterIndexName = "LocationInLogicalCluster"
+
+func GetLocationInLogicalClusterIndexKey(location, clusterName string) string {
+	return location + "/" + clusterName
+}
+
 // NewController returns a new Controller which reconciles Cluster resources in the API
 // server it reaches using the REST client.
 //
@@ -50,16 +64,17 @@ func NewController(cfg *rest.Config, syncerImage string, kubeconfig clientcmdapi
 	crdClient := apiextensionsv1client.NewForConfigOrDie(cfg)
 
 	c := &Controller{
-		queue:           queue,
-		clusterClient:          typedcluster.NewForConfigOrDie(cfg),
-		apiResourceClient:      typedapiresource.NewForConfigOrDie(cfg),
-		crdClient:       crdClient,
-		syncerImage:     syncerImage,
-		kubeconfig:      kubeconfig,
-		stopCh:          stopCh,
-		resourcesToSync: resourcesToSync,
-		syncerMode:      syncerMode,
-		syncers:         map[string]*syncer.Syncer{},
+		queue:             queue,
+		clusterClient:     typedcluster.NewForConfigOrDie(cfg),
+		apiResourceClient: typedapiresource.NewForConfigOrDie(cfg),
+		crdClient:         crdClient,
+		syncerImage:       syncerImage,
+		kubeconfig:        kubeconfig,
+		stopCh:            stopCh,
+		resourcesToSync:   resourcesToSync,
+		syncerMode:        syncerMode,
+		syncers:           map[string]*syncer.Syncer{},
+		apiImporters:      map[string]*APIImporter{},
 	}
 
 	sif := externalversions.NewSharedInformerFactoryWithOptions(versionedclient.NewForConfigOrDie(cfg), resyncPeriod)
@@ -84,7 +99,7 @@ func NewController(cfg *rest.Config, syncerImage string, kubeconfig clientcmdapi
 		if apiResourceImport != nil {
 			c.enqueue(metav1.PartialObjectMetadata{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: apiResourceImport.Name,
+					Name:        apiResourceImport.Name,
 					ClusterName: apiResourceImport.ClusterName,
 				},
 			})
@@ -99,17 +114,17 @@ func NewController(cfg *rest.Config, syncerImage string, kubeconfig clientcmdapi
 			enqueueRelatedCluster(obj)
 		},
 	})
-	c.apiresourceImportIndexer = sif.Cluster().V1alpha1().Clusters().Informer().GetIndexer()
-	c.apiresourceImportIndexer.AddIndexers(map[string]cache.IndexFunc {
-		apiresource.ClusterNameAndGVRIndexName: func(obj interface{}) ([]string, error) {
-			if negociatedApiResource, ok := obj.(*apiresourcev1alpha1.NegociatedAPIResource); ok {
-				return []string{ apiresource.GetClusterNameAndGVRIndexKey(negociatedApiResource.ClusterName, negociatedApiResource.GVR()) }, nil
+	c.apiresourceImportIndexer = sif.Apiresource().V1alpha1().APIResourceImports().Informer().GetIndexer()
+	c.apiresourceImportIndexer.AddIndexers(map[string]cache.IndexFunc{
+		GVRForLocationInLogicalClusterIndexName: func(obj interface{}) ([]string, error) {
+			if apiResourceImport, ok := obj.(*apiresourcev1alpha1.APIResourceImport); ok {
+				return []string{GetGVRForLocationInLogicalClusterIndexKey(apiResourceImport.Spec.Location, apiResourceImport.ClusterName, apiResourceImport.GVR())}, nil
 			}
 			return []string{}, nil
 		},
-		"cluster": func(obj interface{}) ([]string, error) {
+		LocationInLogicalClusterIndexName: func(obj interface{}) ([]string, error) {
 			if apiResourceImport, ok := obj.(*apiresourcev1alpha1.APIResourceImport); ok {
-				return []string{ apiResourceImport.ClusterName + "/" + apiResourceImport.Spec.Location }, nil
+				return []string{GetLocationInLogicalClusterIndexKey(apiResourceImport.Spec.Location, apiResourceImport.ClusterName)}, nil
 			}
 			return []string{}, nil
 		},
@@ -120,20 +135,21 @@ func NewController(cfg *rest.Config, syncerImage string, kubeconfig clientcmdapi
 
 	return c
 }
+
 type Controller struct {
-	queue           workqueue.RateLimitingInterface
-	clusterClient          typedcluster.ClusterV1alpha1Interface
-	apiResourceClient      typedapiresource.ApiresourceV1alpha1Interface
-	clusterIndexer         cache.Indexer
-	apiresourceImportIndexer         cache.Indexer
-	crdClient       apiextensionsv1client.ApiextensionsV1Interface
-	syncerImage     string
-	kubeconfig      clientcmdapi.Config
-	stopCh          chan struct{}
-	resourcesToSync []string
-	syncerMode      SyncerMode
-	syncers         map[string]*syncer.Syncer
-	apiImporters    map[string]*APIImporter
+	queue                    workqueue.RateLimitingInterface
+	clusterClient            typedcluster.ClusterV1alpha1Interface
+	apiResourceClient        typedapiresource.ApiresourceV1alpha1Interface
+	clusterIndexer           cache.Indexer
+	apiresourceImportIndexer cache.Indexer
+	crdClient                apiextensionsv1client.ApiextensionsV1Interface
+	syncerImage              string
+	kubeconfig               clientcmdapi.Config
+	stopCh                   chan struct{}
+	resourcesToSync          []string
+	syncerMode               SyncerMode
+	syncers                  map[string]*syncer.Syncer
+	apiImporters             map[string]*APIImporter
 }
 
 func (c *Controller) enqueue(obj interface{}) {
@@ -146,14 +162,21 @@ func (c *Controller) enqueue(obj interface{}) {
 }
 
 func (c *Controller) Start(numThreads int) {
-	defer c.queue.ShutDown()
 	for i := 0; i < numThreads; i++ {
 		go wait.Until(c.startWorker, time.Second, c.stopCh)
 	}
 	klog.Info("Starting workers")
-	<-c.stopCh
-	klog.Info("Stopping workers")
 }
+
+// Stop stops the controller.
+func (c *Controller) Stop() {
+	klog.Info("Stopping workers")
+	c.queue.ShutDown()
+	close(c.stopCh)
+}
+
+// Done returns a channel that's closed when the controller is stopped.
+func (c *Controller) Done() <-chan struct{} { return c.stopCh }
 
 func (c *Controller) startWorker() {
 	for c.processNextWorkItem() {
@@ -247,20 +270,48 @@ func (c *Controller) deletedCluster(obj interface{}) {
 }
 
 func RegisterClusterCRD(cfg *rest.Config) error {
-	bytes, err := ioutil.ReadFile("config/cluster.example.dev_clusters.yaml")
-
 	crdClient := apiextensionsv1client.NewForConfigOrDie(cfg)
 
-	crd := &apiextensionsv1.CustomResourceDefinition{}
-	err = yaml.Unmarshal(bytes, crd)
+	files, err := ioutil.ReadDir("config/")
 	if err != nil {
 		return err
 	}
+	for _, file := range files {
+		if !strings.HasSuffix(file.Name(), "yaml") {
+			continue
+		}
+		bytes, err := ioutil.ReadFile("config/" + file.Name())
+		crd := &apiextensionsv1.CustomResourceDefinition{}
+		err = yaml.Unmarshal(bytes, crd)
+		if err != nil {
+			return err
+		}
 
-	_, err = crdClient.CustomResourceDefinitions().Create(context.TODO(), crd, metav1.CreateOptions{})
-	if err != nil && !k8serorrs.IsAlreadyExists(err) {
-		return err
+		_, err = crdClient.CustomResourceDefinitions().Create(context.TODO(), crd, metav1.CreateOptions{})
+		if k8serorrs.IsAlreadyExists(err) {
+			existingCRD, err := crdClient.CustomResourceDefinitions().Get(context.TODO(), crd.Name, metav1.GetOptions{})
+			if err != nil {
+				return err
+			}
+			crd.ResourceVersion = existingCRD.ResourceVersion
+			crdClient.CustomResourceDefinitions().Update(context.TODO(), crd, metav1.UpdateOptions{})
+		} else if err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
+
+var clusterKind string = reflect.TypeOf(clusterv1alpha1.Cluster{}).Name()
+func ClusterAsOwnerReference(obj *clusterv1alpha1.Cluster, controller bool) metav1.OwnerReference {
+	isController := controller
+	return metav1.OwnerReference {
+		APIVersion: apiresourcev1alpha1.SchemeGroupVersion.String(),
+		Kind: clusterKind,
+		Name: obj.Name,
+		UID: obj.UID,
+		Controller: &isController,
+	} 
+}
+

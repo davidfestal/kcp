@@ -238,11 +238,21 @@ func lcdForArrayValidation(fldPath *field.Path, existing, new, lcd *schema.Value
 	return
 }
 
+func valuesEqual(v1, v2 *string) bool {
+	if v1 == nil && v2 == nil {
+		return true
+	}
+	if v1 != nil && v2 != nil {
+		return *v1 == *v2
+	}
+	return false
+}
+
 func lcdForArray(fldPath *field.Path, existing, new *schema.Structural, lcd *schema.Structural, narrowExisting bool) (errorList field.ErrorList) {
 	errorList = append(errorList, checkTypesAreTheSame(fldPath, existing, new)...)
 	errorList = append(errorList, lcdForArrayValidation(fldPath, existing.ValueValidation, new.ValueValidation, lcd.ValueValidation, narrowExisting)...)
 	errorList = append(errorList, lcdForStructural(fldPath.Child("Items"), existing.Items, new.Items, lcd.Items, narrowExisting)...)
-	if existing.Extensions.XListType != new.Extensions.XListType {
+	if !valuesEqual(existing.Extensions.XListType, new.Extensions.XListType) {
 		errorList = append(errorList, field.Invalid(fldPath.Child("x-kubernetes-list-type"), new.Extensions.XListType, "x-kubernetes-list-type value has been changed in an incompatible way"))
 	}
 	if !sets.NewString(existing.Extensions.XListMapKeys...).Equal(sets.NewString(new.Extensions.XListMapKeys...)) {
@@ -303,25 +313,27 @@ func lcdForObject(fldPath *field.Path, existing, new *schema.Structural, lcd *sc
 		} else {
 			errorList = append(errorList, field.Invalid(fldPath.Child("properties"), new.Properties, "properties value has been completely cleared in an incompatible way"))
 		}
-	} else if existing.AdditionalProperties.Structural != nil {
-		if new.AdditionalProperties.Structural != nil {
-			errorList = append(errorList, lcdForStructural(fldPath.Child("additionalProperties"), existing.AdditionalProperties.Structural, new.AdditionalProperties.Structural, lcd.AdditionalProperties.Structural, narrowExisting)...)
-		} else if new.AdditionalProperties.Bool {
-			// new schema allows any properties of any schema here => it is a superset of the existing schema
-			// that allows any properties of a given schema.
-			// => Keep the existing schemas as the lcd.
-		} else {
-			errorList = append(errorList, field.Invalid(fldPath.Child("additionalProperties"), new.AdditionalProperties, "additionalProperties value has been changed in an incompatible way"))
-		}
-	} else if existing.AdditionalProperties.Bool {
-		if !new.AdditionalProperties.Bool {
-			if !narrowExisting {
+	} else if existing.AdditionalProperties != nil {
+		if existing.AdditionalProperties.Structural != nil {
+			if new.AdditionalProperties.Structural != nil {
+				errorList = append(errorList, lcdForStructural(fldPath.Child("additionalProperties"), existing.AdditionalProperties.Structural, new.AdditionalProperties.Structural, lcd.AdditionalProperties.Structural, narrowExisting)...)
+			} else if existing.AdditionalProperties != nil && new.AdditionalProperties.Bool {
+				// new schema allows any properties of any schema here => it is a superset of the existing schema
+				// that allows any properties of a given schema.
+				// => Keep the existing schemas as the lcd.
+			} else {
 				errorList = append(errorList, field.Invalid(fldPath.Child("additionalProperties"), new.AdditionalProperties, "additionalProperties value has been changed in an incompatible way"))
 			}
-			lcd.AdditionalProperties.Bool = false
-			lcd.AdditionalProperties.Structural = new.AdditionalProperties.Structural
+		} else if existing.AdditionalProperties.Bool {
+			if !new.AdditionalProperties.Bool {
+				if !narrowExisting {
+					errorList = append(errorList, field.Invalid(fldPath.Child("additionalProperties"), new.AdditionalProperties, "additionalProperties value has been changed in an incompatible way"))
+				}
+				lcd.AdditionalProperties.Bool = false
+				lcd.AdditionalProperties.Structural = new.AdditionalProperties.Structural
+			}
 		}
-	} else {
+	}  else {
 		// Existing schema doesn't allow anything => new will always be a superset of existing
 	}
 

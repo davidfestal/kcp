@@ -13,6 +13,7 @@ import (
 
 	"github.com/kcp-dev/kcp/pkg/cmd/help"
 	"github.com/kcp-dev/kcp/pkg/etcd"
+	"github.com/kcp-dev/kcp/pkg/reconciler/apiresource"
 	"github.com/kcp-dev/kcp/pkg/reconciler/cluster"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -203,7 +204,7 @@ func main() {
 							syncerMode = cluster.SyncerModePush
 						}
 
-						clientutils.EnableMultiCluster(adminConfig, nil, "clusters", "customresourcedefinitions")
+						clientutils.EnableMultiCluster(adminConfig, nil, "clusters", "customresourcedefinitions", "apiresourceimports", "negociatedapiresources")
 						clusterController := cluster.NewController(
 							adminConfig,
 							syncerImage,
@@ -212,6 +213,13 @@ func main() {
 							syncerMode,
 						)
 						clusterController.Start(2)
+						
+						apiresourceController := apiresource.NewController(
+							adminConfig,
+							false,
+						)
+						apiresourceController.Start(2)
+
 						return nil
 					})
 				}

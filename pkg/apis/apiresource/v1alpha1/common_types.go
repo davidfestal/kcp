@@ -14,6 +14,36 @@ type ColumnDefinition struct {
 	JSONPath *string `json:"jsonPath"`
 }
 
+type ColumnDefinitions []ColumnDefinition
+
+func (cd *ColumnDefinitions) ImportFromCRDVersion(crdVersion *apiextensionsv1.CustomResourceDefinitionVersion) *ColumnDefinitions {	
+	alreadyExists := func(name string) bool {
+		for _, colDef := range *cd {
+			if colDef.Name == name {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, apc := range crdVersion.AdditionalPrinterColumns {
+		if ! alreadyExists(apc.Name){
+			jsonPath := apc.JSONPath
+			*cd = append(*cd, ColumnDefinition{
+				TableColumnDefinition: metav1.TableColumnDefinition{
+					Name: apc.Name,
+					Type: apc.Type,
+					Format: apc.Format,
+					Description: apc.Description,
+					Priority: apc.Priority,
+				},
+				JSONPath: &jsonPath,
+			})
+		}
+	}
+	return cd 
+}
+
 type SubResource struct {
 	Name string `json:"name"`
 }
@@ -23,10 +53,40 @@ const (
 	StatusSubResourceName string = "status"
 )
 
+type SubResources []SubResource
+
+func (sr *SubResources) ImportFromCRDVersion(crdVersion *apiextensionsv1.CustomResourceDefinitionVersion) *SubResources {	
+	alreadyExists := func(name string) bool {
+		for _, subResource := range *sr {
+			if subResource.Name == name {
+				return true
+			}
+		}
+		return false
+	}
+
+	if crdVersion.Subresources.Scale != nil {
+		if ! alreadyExists(ScaleSubResourceName){
+			*sr = append(*sr, SubResource{
+				Name: ScaleSubResourceName,
+			})
+		}
+	}
+	if crdVersion.Subresources.Status != nil {
+		if ! alreadyExists(StatusSubResourceName){
+			*sr = append(*sr, SubResource{
+				Name: StatusSubResourceName,
+			})
+		}
+	}
+	return sr 
+}
+
 // CommonAPIResourceSpec holds the common content of both NegociatedAPIResourceSpec
 // and APIResourceImportSpec.
 type CommonAPIResourceSpec struct {
-	metav1.GroupVersion `json:",inline"`
+	Group   string `json:"group"`
+	Version string `json:"version"`
 
 	Scope apiextensionsv1.ResourceScope `json:"scope"`
 
@@ -39,12 +99,12 @@ type CommonAPIResourceSpec struct {
 	// +patchMergeKey=name
 	// +patchStrategy=merge
 	// +optional
-	SubResources    []SubResource `json:"subResources,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
+	SubResources    SubResources `json:"subResources,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
 
 	// +patchMergeKey=name
 	// +patchStrategy=merge
 	// +optional
-	ColumnDefinitions    []ColumnDefinition `json:"columnDefinitions,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
+	ColumnDefinitions    ColumnDefinitions `json:"columnDefinitions,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
 }
 
 func (spec *CommonAPIResourceSpec) GetSchema() (*apiextensionsv1.JSONSchemaProps, error) {

@@ -75,6 +75,9 @@ spec:
               listKind:
                 description: listKind is the serialized kind of the list for this resource. Defaults to "`kind`List".
                 type: string
+              location:
+                description: Locaton the API resource is imported from This field is required
+                type: string
               openAPIV3Schema:
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
@@ -109,6 +112,7 @@ spec:
             required:
             - group
             - kind
+            - location
             - openAPIV3Schema
             - plural
             - scope

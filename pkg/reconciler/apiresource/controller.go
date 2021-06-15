@@ -62,7 +62,7 @@ func NewController(cfg *rest.Config, autoPublishNegociatedAPIResource bool) *Con
 	c.negociatedApiResourceIndexer.AddIndexers(map[string]cache.IndexFunc {
 		ClusterNameAndGVRIndexName: func(obj interface{}) ([]string, error) {
 			if negociatedApiResource, ok := obj.(*apiresourcev1alpha1.NegociatedAPIResource); ok {
-				return []string{ GetClusterNameAndGVRIndexKey(negociatedApiResource.ClusterName, negociatedApiResource.GVR()) }, nil
+				return []string{ GetClusterNameAndGVRIndexKey(negociatedApiResource.ClusterName, negociatedApiResource.GVR())}, nil
 			}
 			return []string{}, nil
 		},
@@ -162,6 +162,7 @@ type queueElement struct {
 	theKey    string
 	gvr       metav1.GroupVersionResource
 	clusterName string
+	deletedObject interface{}
 }
 
 func toQueueElementType(oldObj, obj interface{}) (theType QueueElementType, gvr metav1.GroupVersionResource, oldMeta, newMeta metav1.Object, oldStatus, newStatus interface{}) {
@@ -170,11 +171,11 @@ func toQueueElementType(oldObj, obj interface{}) (theType QueueElementType, gvr 
 		theType = CustomResourceDefinitionType
 		newMeta = typedObj
 		newStatus = typedObj.Status
-		typedOldObj := oldObj.(*apiextensionsv1.CustomResourceDefinition)
 		if oldObj != nil {
+			typedOldObj := oldObj.(*apiextensionsv1.CustomResourceDefinition)
 			oldStatus = typedOldObj.Status
+			oldMeta = typedOldObj
 		}
-		oldMeta = typedOldObj
 		gvr = metav1.GroupVersionResource{
 			Group:    typedObj.Spec.Group,
 			Resource: typedObj.Spec.Names.Plural,
@@ -183,11 +184,11 @@ func toQueueElementType(oldObj, obj interface{}) (theType QueueElementType, gvr 
 		theType = APIResourceImportType
 		newMeta = typedObj
 		newStatus = typedObj.Status
-		typedOldObj := oldObj.(*apiresourcev1alpha1.APIResourceImport)
-		if typedOldObj != nil {
+		if oldObj != nil {
+			typedOldObj := oldObj.(*apiresourcev1alpha1.APIResourceImport)
 			oldStatus = typedOldObj.Status
+			oldMeta = typedOldObj
 		}
-		oldMeta = typedOldObj
 		gvr = metav1.GroupVersionResource{
 			Group:    typedObj.Spec.Group,
 			Version:  typedObj.Spec.Version,
@@ -197,11 +198,11 @@ func toQueueElementType(oldObj, obj interface{}) (theType QueueElementType, gvr 
 		theType = NegociatedAPIResourceType
 		newMeta = typedObj
 		newStatus = typedObj.Status
-		typedOldObj := oldObj.(*apiresourcev1alpha1.NegociatedAPIResource)
-		if typedOldObj != nil {
+		if oldObj != nil {
+			typedOldObj := oldObj.(*apiresourcev1alpha1.NegociatedAPIResource)
 			oldStatus = typedOldObj.Status
+			oldMeta = typedOldObj
 		}
-		oldMeta = typedOldObj
 		gvr = metav1.GroupVersionResource{
 			Group:    typedObj.Spec.Group,
 			Version:  typedObj.Spec.Version,
@@ -229,6 +230,7 @@ func (c *Controller) enqueue(action ResourceHandlerAction, oldObj, obj interface
 
 	theType, gvr, oldMeta, newMeta, oldStatus, newStatus := toQueueElementType(oldObj, obj)
 	var theAction QueueElementAction
+	var deletedObject interface{}
 
 	switch action {
 	case "Add":
@@ -262,6 +264,7 @@ func (c *Controller) enqueue(action ResourceHandlerAction, oldObj, obj interface
 		return
 	case "Delete":
 		theAction = Deleted
+		deletedObject = obj
 	}
 
 	c.queue.AddRateLimited(queueElement{
@@ -270,18 +273,26 @@ func (c *Controller) enqueue(action ResourceHandlerAction, oldObj, obj interface
 		theKey:    key,
 		gvr:       gvr,
 		clusterName: newMeta.GetClusterName(),
+		deletedObject: deletedObject,
 	})
 }
 
 func (c *Controller) Start(numThreads int) {
-	defer c.queue.ShutDown()
 	for i := 0; i < numThreads; i++ {
 		go wait.Until(c.startWorker, time.Second, c.stopCh)
 	}
 	log.Println("Starting workers")
-	<-c.stopCh
-	log.Println("Stopping workers")
 }
+
+// Stop stops the controller.
+func (c *Controller) Stop() {
+	log.Println("Stopping workers")
+	c.queue.ShutDown()
+	close(c.stopCh)
+}
+
+// Done returns a channel that's closed when the controller is stopped.
+func (c *Controller) Done() <-chan struct{} { return c.stopCh }
 
 func (c *Controller) startWorker() {
 	for c.processNextWorkItem() {

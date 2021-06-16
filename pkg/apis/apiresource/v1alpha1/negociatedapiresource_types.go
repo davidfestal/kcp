@@ -13,7 +13,12 @@ import (
 // +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,categories=kcp
+// +kubebuilder:printcolumn:name="Publish",type="boolean",JSONPath=`.spec.publish`,priority=1
+// +kubebuilder:printcolumn:name="API Version",type="string",JSONPath=`.status.apiVersion`,priority=3
+// +kubebuilder:printcolumn:name="API Resource",type="string",JSONPath=`.status.apiResource`,priority=4
+// +kubebuilder:printcolumn:name="Published",type="string",JSONPath=`.status.conditions[?(@.type=="Published")].status`,priority=5
+// +kubebuilder:printcolumn:name="Enforced",type="string",JSONPath=`.status.conditions[?(@.type=="Enforced")].status`,priority=6
 type NegociatedAPIResource struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional
@@ -79,6 +84,8 @@ type NegociatedAPIResourceCondition struct {
 
 // NegociatedAPIResourceStatus communicates the observed state of the NegociatedAPIResource (from the controller).
 type NegociatedAPIResourceStatus struct {
+	APIVersion  string                       `json:"apiVersion,omitempty"`
+	APIResource string                       `json:"apiResource,omitempty"`
 	Conditions []NegociatedAPIResourceCondition `json:"conditions,omitempty"`
 }
 

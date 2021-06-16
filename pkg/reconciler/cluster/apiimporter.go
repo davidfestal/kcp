@@ -7,6 +7,7 @@ import (
 	apiresourcev1alpha1 "github.com/kcp-dev/kcp/pkg/apis/apiresource/v1alpha1"
 	clusterv1alpha1 "github.com/kcp-dev/kcp/pkg/apis/cluster/v1alpha1"
 	"github.com/kcp-dev/kcp/pkg/crdpuller"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/endpoints/request"
@@ -17,18 +18,20 @@ import (
 
 type APIImporter struct {
 	c                  *Controller
-	location  string
+	location           string
 	logicalClusterName string
 	schemaPuller       crdpuller.SchemaPuller
 	done               chan bool
 	SyncedGVRs         map[string]metav1.GroupVersionResource
+	context            context.Context
 }
 
 func (c *Controller) StartAPIImporter(config *rest.Config, location string, logicalClusterName string, pollInterval time.Duration) (*APIImporter, error) {
 	apiImporter := APIImporter{
 		c:                  c,
-		location:  location,
+		location:           location,
 		logicalClusterName: logicalClusterName,
+		context:            request.WithCluster(context.Background(), request.Cluster{Name: logicalClusterName}),
 	}
 
 	ticker := time.NewTicker(1 * time.Minute)
@@ -55,9 +58,9 @@ func (c *Controller) StartAPIImporter(config *rest.Config, location string, logi
 	return &apiImporter, nil
 }
 
-func (i *APIImporter) Stop() {	
+func (i *APIImporter) Stop() {
 	i.done <- true
-	
+
 	objs, err := i.c.apiresourceImportIndexer.ByIndex(LocationInLogicalClusterIndexName, GetLocationInLogicalClusterIndexKey(i.location, i.logicalClusterName))
 	if err != nil {
 		klog.Errorf("error trying to list APIResourceImport objects for location %s in logical cluster %s: %v", i.location, i.logicalClusterName, err)
@@ -72,14 +75,14 @@ func (i *APIImporter) Stop() {
 }
 
 func (i *APIImporter) ImportAPIs() {
-	crds, err := i.schemaPuller.PullCRDs(context.Background(), i.c.resourcesToSync...)
+	crds, err := i.schemaPuller.PullCRDs(i.context, i.c.resourcesToSync...)
 	if err != nil {
 		klog.Errorf("error pulling CRDs: %v", err)
 	}
 
 	gvrsToSync := map[string]metav1.GroupVersionResource{}
 	for resourceName, pulledCrd := range crds {
-		crdVersion := pulledCrd.Spec.Versions[0] 
+		crdVersion := pulledCrd.Spec.Versions[0]
 		gvr := metav1.GroupVersionResource{
 			Group:    pulledCrd.Spec.Group,
 			Version:  crdVersion.Name,
@@ -99,7 +102,7 @@ func (i *APIImporter) ImportAPIs() {
 			apiResourceImport := objs[0].(*apiresourcev1alpha1.APIResourceImport)
 			apiResourceImport.ClusterName = i.logicalClusterName
 			apiResourceImport.Spec.SetSchema(crdVersion.Schema.OpenAPIV3Schema)
-			_, err := i.c.apiResourceClient.APIResourceImports().Update(context.Background(), apiResourceImport, metav1.UpdateOptions{})
+			_, err := i.c.apiResourceClient.APIResourceImports().Update(i.context, apiResourceImport, metav1.UpdateOptions{})
 			if err != nil {
 				if err != nil {
 					klog.Errorf("error updating APIResourceImport %s: %v", apiResourceImport.Name, err)
@@ -107,7 +110,7 @@ func (i *APIImporter) ImportAPIs() {
 				}
 			}
 		} else {
-			apiResourceImportName := gvr.Resource + "." + i.location + "." + gvr.Version + "." 
+			apiResourceImportName := gvr.Resource + "." + i.location + "." + gvr.Version + "."
 			if gvr.Group == "" {
 				apiResourceImportName = apiResourceImportName + "core"
 			} else {
@@ -116,7 +119,7 @@ func (i *APIImporter) ImportAPIs() {
 
 			clusterKey, err := cache.MetaNamespaceKeyFunc(&metav1.PartialObjectMetadata{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: i.location,
+					Name:        i.location,
 					ClusterName: i.logicalClusterName,
 				},
 			})
@@ -138,29 +141,45 @@ func (i *APIImporter) ImportAPIs() {
 				klog.Errorf("error creating APIResourceImport %s: the object retrieved from the cluster index for location %s in logical cluster %s should be a cluster object, but is of type: %T", apiResourceImportName, i.location, i.logicalClusterName, clusterObj)
 				continue
 			}
-			apiResourceImport := &apiresourcev1alpha1.APIResourceImport {
-				ObjectMeta : metav1.ObjectMeta{
-					Name: apiResourceImportName,
+			apiResourceImport := &apiresourcev1alpha1.APIResourceImport{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        apiResourceImportName,
 					ClusterName: i.logicalClusterName,
 					OwnerReferences: []metav1.OwnerReference{
 						ClusterAsOwnerReference(cluster, true),
 					},
 				},
 				Spec: apiresourcev1alpha1.APIResourceImportSpec{
-					Location: i.location,
-					SchemaUpdateStrategy: apiresourcev1alpha1.UpdatePublished,
+					Location:             i.location,
+					SchemaUpdateStrategy: apiresourcev1alpha1.UpdateUnpublished,
 					CommonAPIResourceSpec: apiresourcev1alpha1.CommonAPIResourceSpec{
-						Group: gvr.Group,
-						Version: gvr.Version,
-						Scope: pulledCrd.Spec.Scope,
+						GroupVersion: apiresourcev1alpha1.GroupVersion{
+							Group:   gvr.Group,
+							Version: gvr.Version,
+						},
+						Scope:                         pulledCrd.Spec.Scope,
 						CustomResourceDefinitionNames: pulledCrd.Spec.Names,
-						SubResources: *(&apiresourcev1alpha1.SubResources{}).ImportFromCRDVersion(&crdVersion),
-						ColumnDefinitions: *(&apiresourcev1alpha1.ColumnDefinitions{}).ImportFromCRDVersion(&crdVersion),
+						SubResources:                  *(&apiresourcev1alpha1.SubResources{}).ImportFromCRDVersion(&crdVersion),
+						ColumnDefinitions:             *(&apiresourcev1alpha1.ColumnDefinitions{}).ImportFromCRDVersion(&crdVersion),
 					},
 				},
 			}
 			apiResourceImport.Spec.SetSchema(crdVersion.Schema.OpenAPIV3Schema)
-			_, err = i.c.apiResourceClient.APIResourceImports().Create(context.Background(), apiResourceImport, metav1.CreateOptions{})
+			existing, err := i.c.apiResourceClient.APIResourceImports().Create(i.context, apiResourceImport, metav1.CreateOptions{})
+			if errors.IsAlreadyExists(err) {
+				existing, err = i.c.apiResourceClient.APIResourceImports().Get(i.context, apiResourceImport.Name, metav1.GetOptions{})
+			}
+			if err != nil {
+				if err != nil {
+					klog.Errorf("error creating APIResourceImport %s: %v", apiResourceImport.Name, err)
+					continue
+				}
+			}
+			existing.Status = apiresourcev1alpha1.APIResourceImportStatus {
+				APIVersion: existing.Spec.GroupVersion.String(),
+				APIResource: existing.Spec.Plural,
+			}
+			_, err = i.c.apiResourceClient.APIResourceImports().UpdateStatus(i.context, existing, metav1.UpdateOptions{})
 			if err != nil {
 				if err != nil {
 					klog.Errorf("error creating APIResourceImport %s: %v", apiResourceImport.Name, err)
@@ -185,7 +204,7 @@ func (i *APIImporter) ImportAPIs() {
 		}
 		if len(objs) == 1 {
 			apiResourceImportToRemove := objs[0].(*apiresourcev1alpha1.APIResourceImport)
-			err := i.c.apiResourceClient.APIResourceImports().Delete(context.Background(), apiResourceImportToRemove.Name, metav1.DeleteOptions{})
+			err := i.c.apiResourceClient.APIResourceImports().Delete(i.context, apiResourceImportToRemove.Name, metav1.DeleteOptions{})
 			if err != nil {
 				klog.Errorf("error deleting APIResourceImport %s: %v", apiResourceImportToRemove.Name, err)
 				continue

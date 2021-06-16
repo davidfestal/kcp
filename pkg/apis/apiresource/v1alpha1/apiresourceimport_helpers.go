@@ -81,8 +81,8 @@ func IsAPIResourceImportConditionEquivalent(lhs, rhs *APIResourceImportCondition
 // GVR returns the GVR that this APIResourceImport represents.
 func (apiResourceImport *APIResourceImport) GVR() metav1.GroupVersionResource {
 	return metav1.GroupVersionResource {
-		Group: apiResourceImport.Spec.Group,
-		Version: apiResourceImport.Spec.Version,
+		Group: apiResourceImport.Spec.GroupVersion.Group,
+		Version: apiResourceImport.Spec.GroupVersion.Version,
 		Resource: apiResourceImport.Spec.Plural,
 	}
 }

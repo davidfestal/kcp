@@ -190,8 +190,8 @@ func toQueueElementType(oldObj, obj interface{}) (theType QueueElementType, gvr 
 			oldMeta = typedOldObj
 		}
 		gvr = metav1.GroupVersionResource{
-			Group:    typedObj.Spec.Group,
-			Version:  typedObj.Spec.Version,
+			Group:    typedObj.Spec.GroupVersion.Group,
+			Version:  typedObj.Spec.GroupVersion.Version,
 			Resource: typedObj.Spec.Plural,
 		}
 	case *apiresourcev1alpha1.NegociatedAPIResource:
@@ -204,8 +204,8 @@ func toQueueElementType(oldObj, obj interface{}) (theType QueueElementType, gvr 
 			oldMeta = typedOldObj
 		}
 		gvr = metav1.GroupVersionResource{
-			Group:    typedObj.Spec.Group,
-			Version:  typedObj.Spec.Version,
+			Group:    typedObj.Spec.GroupVersion.Group,
+			Version:  typedObj.Spec.GroupVersion.Version,
 			Resource: typedObj.Spec.Plural,
 		}
 	case cache.DeletedFinalStateUnknown:

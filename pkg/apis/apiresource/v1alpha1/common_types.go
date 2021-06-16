@@ -82,11 +82,26 @@ func (sr *SubResources) ImportFromCRDVersion(crdVersion *apiextensionsv1.CustomR
 	return sr 
 }
 
+type GroupVersion struct {
+	Group   string `json:"group"`
+	Version string `json:"version"`
+}
+
+func (v GroupVersion) String() string {
+	group := v.Group
+	if group == "core" {
+		group = ""
+	}
+	return metav1.GroupVersion {
+		Group: v.Group,
+		Version: v.Version,
+	}.String()
+}
+
 // CommonAPIResourceSpec holds the common content of both NegociatedAPIResourceSpec
 // and APIResourceImportSpec.
 type CommonAPIResourceSpec struct {
-	Group   string `json:"group"`
-	Version string `json:"version"`
+	GroupVersion GroupVersion `json:"groupVersion"`
 
 	Scope apiextensionsv1.ResourceScope `json:"scope"`
 

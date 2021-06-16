@@ -10,13 +10,36 @@ metadata:
 spec:
   group: apiresource.kcp.dev
   names:
+    categories:
+    - kcp
     kind: NegociatedAPIResource
     listKind: NegociatedAPIResourceList
     plural: negociatedapiresources
     singular: negociatedapiresource
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.publish
+      name: Publish
+      priority: 1
+      type: boolean
+    - jsonPath: .status.apiVersion
+      name: API Version
+      priority: 3
+      type: string
+    - jsonPath: .status.apiResource
+      name: API Resource
+      priority: 4
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Published")].status
+      name: Published
+      priority: 5
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Enforced")].status
+      name: Enforced
+      priority: 6
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: NegociatedAPIResource describes the result of either the normalization of any number of imports of an API resource from external clusters (either physical or logical), or the the manual application of a CRD version for the corresponding GVR.
@@ -67,8 +90,16 @@ spec:
                   - type
                   type: object
                 type: array
-              group:
-                type: string
+              groupVersion:
+                properties:
+                  group:
+                    type: string
+                  version:
+                    type: string
+                required:
+                - group
+                - version
+                type: object
               kind:
                 description: kind is the serialized kind of the resource. It is normally CamelCase and singular. Custom resource instances will use this value as the `kind` attribute in API calls.
                 type: string
@@ -103,19 +134,20 @@ spec:
                   - name
                   type: object
                 type: array
-              version:
-                type: string
             required:
-            - group
+            - groupVersion
             - kind
             - openAPIV3Schema
             - plural
             - scope
-            - version
             type: object
           status:
             description: NegociatedAPIResourceStatus communicates the observed state of the NegociatedAPIResource (from the controller).
             properties:
+              apiResource:
+                type: string
+              apiVersion:
+                type: string
               conditions:
                 items:
                   description: NegociatedAPIResourceCondition contains details for the current condition of this negociated api resource.

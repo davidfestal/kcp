@@ -12,7 +12,13 @@ import (
 // +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,categories=kcp
+// +kubebuilder:printcolumn:name="Location",type="string",JSONPath=`.spec.location`,priority=1
+// +kubebuilder:printcolumn:name="Schema update strategy",type="string",JSONPath=`.spec.schemaUpdateStrategy`,priority=2
+// +kubebuilder:printcolumn:name="API Version",type="string",JSONPath=`.status.apiVersion`,priority=3
+// +kubebuilder:printcolumn:name="API Resource",type="string",JSONPath=`.status.apiResource`,priority=4
+// +kubebuilder:printcolumn:name="Compatible",type="string",JSONPath=`.status.conditions[?(@.type=="Compatible")].status`,priority=5
+// +kubebuilder:printcolumn:name="Available",type="string",JSONPath=`.status.conditions[?(@.type=="Available")].status`,priority=6
 type APIResourceImport struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional
@@ -27,7 +33,7 @@ type APIResourceImport struct {
 
 // SchemaUpdateStrategy defines the strategy for updating the
 // correspondoing negociated API resource
-// based on the schema of this API Resource Import 
+// based on the schema of this API Resource Import
 type SchemaUpdateStrategyType string
 
 const (
@@ -42,27 +48,30 @@ const (
 	// UpdateUnpublished means that the corresponding negociated API Resource will be modified
 	// to take in account the schema of the API resource import, but only for unpublished
 	// negociated API resources.
-	// The modifications to the negociated API resource will be based (if possible) on a LCD schema between 
+	// The modifications to the negociated API resource will be based (if possible) on a LCD schema between
 	// the schema of the resource import and the schema of the already-existing negociated API resource.
 	// Of course this is not valid if the negociated API resource has been "enforced" by applying a CRD for
-	// the same GVR manually 
+	// the same GVR manually
 	UpdateUnpublished SchemaUpdateStrategyType = "UpdateUnpublished"
 
 	// UpdateUnpublished means that the corresponding negociated API Resource will be modified
 	// to take in account the schema of the API resource import, even if the already-existing
 	// negociated API resource has already been published (as a CRD).
-	// The modifications to the negociated API resource will be based (if possible) on a LCD schema between 
+	// The modifications to the negociated API resource will be based (if possible) on a LCD schema between
 	// the schema of the resource import and the schema of the already-existing negociated API resource.
 	// Of course this is not valid if the negociated API resource has been "enforced" by applying a CRD for
-	// the same GVR manually 
+	// the same GVR manually
 	UpdatePublished SchemaUpdateStrategyType = "UpdatePublished"
 )
 
 func (strategy SchemaUpdateStrategyType) CanUdpate(negociatedAPIResourceIsPublished bool) bool {
 	switch strategy {
-	case UpdateNever: return false
-	case UpdateUnpublished: return !negociatedAPIResourceIsPublished
-	case UpdatePublished: return true
+	case UpdateNever:
+		return false
+	case UpdateUnpublished:
+		return !negociatedAPIResourceIsPublished
+	case UpdatePublished:
+		return true
 	}
 	return false
 }
@@ -74,8 +83,8 @@ type APIResourceImportSpec struct {
 	// SchemaUpdateStrategy defines the schema update strategy for this API Resource import.
 	// Default value is UpdateUnpublished
 	//
-	// +optional 
-	SchemaUpdateStrategy  SchemaUpdateStrategyType `json:"schemaUpdateStrategy,omitempty"`
+	// +optional
+	SchemaUpdateStrategy SchemaUpdateStrategyType `json:"schemaUpdateStrategy,omitempty"`
 
 	// Locaton the API resource is imported from
 	// This field is required
@@ -86,10 +95,10 @@ type APIResourceImportSpec struct {
 type APIResourceImportConditionType string
 
 const (
-	// Compatible means that this API Resource import is compatible with the current 
+	// Compatible means that this API Resource import is compatible with the current
 	// Negociated API Resource
 	Compatible APIResourceImportConditionType = "Compatible"
-	// Available means that this API Resource import is compatible with the current 
+	// Available means that this API Resource import is compatible with the current
 	// Negociated API Resource, which has been published as a CRD
 	Available APIResourceImportConditionType = "Available"
 )
@@ -114,7 +123,9 @@ type APIResourceImportCondition struct {
 
 // APIResourceImportStatus communicates the observed state of the APIResourceImport (from the controller).
 type APIResourceImportStatus struct {
-	Conditions []APIResourceImportCondition `json:"conditions,omitempty"`
+	APIVersion  string                       `json:"apiVersion,omitempty"`
+	APIResource string                       `json:"apiResource,omitempty"`
+	Conditions  []APIResourceImportCondition `json:"conditions,omitempty"`
 }
 
 // APIResourceImportList is a list of APIResourceImport resources

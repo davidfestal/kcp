@@ -81,8 +81,8 @@ func IsNegociatedAPIResourceConditionEquivalent(lhs, rhs *NegociatedAPIResourceC
 // GVR returns the GVR that this NegociatedAPIResource represents.
 func (negociatedApiResource *NegociatedAPIResource) GVR() metav1.GroupVersionResource {
 	return metav1.GroupVersionResource {
-		Group: negociatedApiResource.Spec.Group,
-		Version: negociatedApiResource.Spec.Version,
+		Group: negociatedApiResource.Spec.GroupVersion.Group,
+		Version: negociatedApiResource.Spec.GroupVersion.Version,
 		Resource: negociatedApiResource.Spec.Plural,
 	}
 }

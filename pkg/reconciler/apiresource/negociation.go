@@ -102,7 +102,7 @@ func (c *Controller) process(key queueElement) error {
 
 			// - if strategy allows schema update of the negociated API resource (and current negociated API resource is not enforced)
 			// => Calculate the LCD of all other APIResourceImports for this GVR and update the schema of the corresponding NegociatedAPIResource.
-			return c.ensureAPIResourceCompatibility(ctx, apiResourceImport.ClusterName, key.gvr, apiResourceImport, apiresourcev1alpha1.UpdatePublished)
+			return c.ensureAPIResourceCompatibility(ctx, apiResourceImport.ClusterName, key.gvr, nil, apiresourcev1alpha1.UpdatePublished)
 		}
 	case NegociatedAPIResourceType:
 		negociatedApiResource, err := c.negociatedApiResourceLister.Get(key.theKey)
@@ -293,6 +293,7 @@ func (c *Controller) deleteNegociatedAPIResource(ctx context.Context, clusterNam
 		}
 		if len(objs) == 0 {
 			klog.Warningf("NegociatedAPIResource for GVR %s was not found and could not be deleted", gvr.String())
+			continue
 		}
 
 		toDelete := objs[0].(*apiresourcev1alpha1.NegociatedAPIResource)
@@ -362,6 +363,12 @@ func (c *Controller) ensureAPIResourceCompatibility(ctx context.Context, cluster
 					Publish:               c.AutoPublishNegociatedAPIResource,
 				},
 			}
+			apiResourceImport.SetCondition(apiresourcev1alpha1.APIResourceImportCondition{
+				Type:    apiresourcev1alpha1.Compatible,
+				Status:  metav1.ConditionTrue,
+				Reason:  "",
+				Message: "",
+			})
 		} else {
 			allowUpdateNogociatedSchema := !negociatedAPIResource.IsConditionTrue(apiresourcev1alpha1.Enforced) &&
 				apiResourceImport.Spec.SchemaUpdateStrategy.CanUdpate(negociatedAPIResource.IsConditionTrue(apiresourcev1alpha1.Published))
@@ -378,13 +385,17 @@ func (c *Controller) ensureAPIResourceCompatibility(ctx context.Context, cluster
 			}
 
 			apiResourceImport = apiResourceImport.DeepCopy()
-			lcd, err := crdnegotiation.LCD(field.NewPath(newNegociatedAPIResource.Spec.Kind), negociatedSchema, importSchema, allowUpdateNogociatedSchema)
-			if err != nil {
+			lcd, errs := crdnegotiation.LCD(field.NewPath(newNegociatedAPIResource.Spec.Kind), negociatedSchema, importSchema, allowUpdateNogociatedSchema)
+			if errs != nil {
+				var message string
+				for _, err := range errs.Errors() {
+					message = message + err.Error() + "\n" 
+				} 
 				apiResourceImport.SetCondition(apiresourcev1alpha1.APIResourceImportCondition{
 					Type:    apiresourcev1alpha1.Compatible,
 					Status:  metav1.ConditionFalse,
 					Reason:  "IncompatibleSchema",
-					Message: err.Error(),
+					Message: message,
 				})
 			} else {
 				apiResourceImport.SetCondition(apiresourcev1alpha1.APIResourceImportCondition{
@@ -405,7 +416,19 @@ func (c *Controller) ensureAPIResourceCompatibility(ctx context.Context, cluster
 		}
 	}
 	if negociatedAPIResource == nil {
-		if _, err := c.apiresourceClient.NegociatedAPIResources().Create(ctx, newNegociatedAPIResource, metav1.CreateOptions{}); err != nil {
+		existing, err := c.apiresourceClient.NegociatedAPIResources().Create(ctx, newNegociatedAPIResource, metav1.CreateOptions{})
+		if k8serrors.IsAlreadyExists(err) {
+			existing, err = c.apiresourceClient.NegociatedAPIResources().Get(ctx, newNegociatedAPIResource.Name, metav1.GetOptions{})
+		}
+		if err != nil {
+			return err
+		}
+		existing.Status = apiresourcev1alpha1.NegociatedAPIResourceStatus {
+			APIVersion: existing.Spec.GroupVersion.String(),
+			APIResource: existing.Spec.Plural,
+		}
+		_, err = c.apiresourceClient.NegociatedAPIResources().UpdateStatus(ctx, existing, metav1.UpdateOptions{})
+		if err != nil {
 			return err
 		}
 	} else if updatedNegociatedSchema {
@@ -527,7 +550,7 @@ func (c *Controller) publishNegociatedResource(ctx context.Context, clusterName 
 			},
 			Spec: apiextensionsv1.CustomResourceDefinitionSpec{
 				Scope: negociatedApiResource.Spec.Scope,
-				Group: negociatedApiResource.Spec.Group,
+				Group: negociatedApiResource.Spec.GroupVersion.Group,
 				Names: negociatedApiResource.Spec.CustomResourceDefinitionNames,
 				Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
 					crdVersion,

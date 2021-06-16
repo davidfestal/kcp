@@ -47,7 +47,7 @@ func LCD(fldPath *field.Path, existing, new *apiextensionsv1.JSONSchemaProps, na
 
 func checkTypesAreTheSame(fldPath *field.Path, existing, new *schema.Structural) (errorList field.ErrorList) {
 	if new.Type != existing.Type {
-		return field.ErrorList{field.Invalid(fldPath.Child("type"), new, "The type of the should not be changed")}
+		return field.ErrorList{field.Invalid(fldPath.Child("type"), new.Type, "The type of the should not be changed")}
 	}
 	return nil
 }
@@ -80,10 +80,10 @@ func lcdForStructural(fldPath *field.Path, existing, new *schema.Structural, lcd
 		return field.ErrorList{field.InternalError(fldPath, errors.New("lcd argument should be passed when narrowExisting is true"))}
 	}
 	if new == nil {
-		return field.ErrorList{field.Invalid(fldPath, new, "new schema doesn't allow anything")}
+		return field.ErrorList{field.Invalid(fldPath, nil, "new schema doesn't allow anything")}
 	}
 	if existing.XPreserveUnknownFields != new.XPreserveUnknownFields {
-		errorList = append(errorList, field.Invalid(fldPath.Child("x-preserve-unknown-fields"), new, "x-preserve-unknown-fields value has been changed in an incompatible way"))
+		errorList = append(errorList, field.Invalid(fldPath.Child("x-preserve-unknown-fields"), new.XPreserveUnknownFields, "x-preserve-unknown-fields value has been changed in an incompatible way"))
 	}
 
 	switch existing.Type {
@@ -106,7 +106,7 @@ func lcdForStructural(fldPath *field.Path, existing, new *schema.Structural, lcd
 			return lcdForPreserveUnknownFields(fldPath, existing, new, lcd, narrowExisting)
 		}
 	}
-	return field.ErrorList{field.Invalid(field.NewPath(fldPath.String(), "type"), existing, "Invalid type")}
+	return field.ErrorList{field.Invalid(field.NewPath(fldPath.String(), "type"), existing.Type, "Invalid type")}
 }
 
 func lcdForIntegerValidation(fldPath *field.Path, existing, new *schema.ValueValidation, lcd *schema.ValueValidation, narrowExisting bool) (errorList field.ErrorList) {
@@ -182,7 +182,7 @@ func lcdForStringValidation(fldPath *field.Path, existing, new, lcd *schema.Valu
 	newEnumValues := toEnumSets(new.Enum)
 	if !newEnumValues.IsSuperset(existingEnumValues) {
 		if !narrowExisting {
-			errorList = append(errorList, field.Invalid(fldPath.Child("enum"), new.Enum, "enum value has been changed in an incompatible way"))
+			errorList = append(errorList, field.Invalid(fldPath.Child("enum"), newEnumValues.Difference(existingEnumValues).List(), "enum value has been changed in an incompatible way"))
 		}
 		lcd.Enum = nil
 		lcdEnumValues := existingEnumValues.Intersection(newEnumValues).List()
@@ -286,7 +286,7 @@ func lcdForObject(fldPath *field.Path, existing, new *schema.Structural, lcd *sc
 			lcdProperties := existingProperties
 			if !newProperties.IsSuperset(existingProperties) {
 				if !narrowExisting {
-					errorList = append(errorList, field.Invalid(fldPath.Child("properties"), new.Properties, "properties value has been changed in an incompatible way"))
+					errorList = append(errorList, field.Invalid(fldPath.Child("properties"), newProperties.Difference(existingProperties).List(), "properties value has been changed in an incompatible way"))
 				}
 				lcdProperties = existingProperties.Intersection(newProperties)
 			}
@@ -311,7 +311,7 @@ func lcdForObject(fldPath *field.Path, existing, new *schema.Structural, lcd *sc
 			// that allows named properties only.
 			// => Keep the existing schemas as the lcd.
 		} else {
-			errorList = append(errorList, field.Invalid(fldPath.Child("properties"), new.Properties, "properties value has been completely cleared in an incompatible way"))
+			errorList = append(errorList, field.Invalid(fldPath.Child("properties"), sets.StringKeySet(existing.Properties).List(), "properties value has been completely cleared in an incompatible way"))
 		}
 	} else if existing.AdditionalProperties != nil {
 		if existing.AdditionalProperties.Structural != nil {
@@ -322,12 +322,12 @@ func lcdForObject(fldPath *field.Path, existing, new *schema.Structural, lcd *sc
 				// that allows any properties of a given schema.
 				// => Keep the existing schemas as the lcd.
 			} else {
-				errorList = append(errorList, field.Invalid(fldPath.Child("additionalProperties"), new.AdditionalProperties, "additionalProperties value has been changed in an incompatible way"))
+				errorList = append(errorList, field.Invalid(fldPath.Child("additionalProperties"), new.AdditionalProperties.Bool, "additionalProperties value has been changed in an incompatible way"))
 			}
 		} else if existing.AdditionalProperties.Bool {
 			if !new.AdditionalProperties.Bool {
 				if !narrowExisting {
-					errorList = append(errorList, field.Invalid(fldPath.Child("additionalProperties"), new.AdditionalProperties, "additionalProperties value has been changed in an incompatible way"))
+					errorList = append(errorList, field.Invalid(fldPath.Child("additionalProperties"), new.AdditionalProperties.Bool, "additionalProperties value has been changed in an incompatible way"))
 				}
 				lcd.AdditionalProperties.Bool = false
 				lcd.AdditionalProperties.Structural = new.AdditionalProperties.Structural
@@ -343,7 +343,7 @@ func lcdForObject(fldPath *field.Path, existing, new *schema.Structural, lcd *sc
 func lcdForIntOrString(fldPath *field.Path, existing, new *schema.Structural, lcd *schema.Structural, narrowExisting bool) (errorList field.ErrorList) {
 	errorList = append(errorList, checkTypesAreTheSame(fldPath, existing, new)...)
 	if !new.XIntOrString {
-		errorList = append(errorList, field.Invalid(fldPath.Child("x-kubernetes-int-or-string"), new, "x-kubernetes-int-or-string value has been changed in an incompatible way"))
+		errorList = append(errorList, field.Invalid(fldPath.Child("x-kubernetes-int-or-string"), new.XIntOrString, "x-kubernetes-int-or-string value has been changed in an incompatible way"))
 	}
 
 	errorList = append(errorList, lcdForStringValidation(fldPath, existing.ValueValidation, new.ValueValidation, lcd.ValueValidation, narrowExisting)...)

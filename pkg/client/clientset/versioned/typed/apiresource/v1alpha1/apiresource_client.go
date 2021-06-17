@@ -27,7 +27,7 @@ import (
 type ApiresourceV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	APIResourceImportsGetter
-	NegociatedAPIResourcesGetter
+	NegotiatedAPIResourcesGetter
 }
 
 // ApiresourceV1alpha1Client is used to interact with features provided by the apiresource.kcp.dev group.
@@ -39,8 +39,8 @@ func (c *ApiresourceV1alpha1Client) APIResourceImports() APIResourceImportInterf
 	return newAPIResourceImports(c)
 }
 
-func (c *ApiresourceV1alpha1Client) NegociatedAPIResources() NegociatedAPIResourceInterface {
-	return newNegociatedAPIResources(c)
+func (c *ApiresourceV1alpha1Client) NegotiatedAPIResources() NegotiatedAPIResourceInterface {
+	return newNegotiatedAPIResources(c)
 }
 
 // NewForConfig creates a new ApiresourceV1alpha1Client for the given config.

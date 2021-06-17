@@ -159,7 +159,7 @@ spec:
                 type: string
               conditions:
                 items:
-                  description: APIResourceImportCondition contains details for the current condition of this negociated api resource.
+                  description: APIResourceImportCondition contains details for the current condition of this negotiated api resource.
                   properties:
                     lastTransitionTime:
                       description: Last time the condition transitioned from one status to another.

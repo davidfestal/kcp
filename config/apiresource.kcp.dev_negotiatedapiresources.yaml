@@ -6,16 +6,16 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.5.0
   creationTimestamp: null
-  name: negociatedapiresources.apiresource.kcp.dev
+  name: negotiatedapiresources.apiresource.kcp.dev
 spec:
   group: apiresource.kcp.dev
   names:
     categories:
     - kcp
-    kind: NegociatedAPIResource
-    listKind: NegociatedAPIResourceList
-    plural: negociatedapiresources
-    singular: negociatedapiresource
+    kind: NegotiatedAPIResource
+    listKind: NegotiatedAPIResourceList
+    plural: negotiatedapiresources
+    singular: negotiatedapiresource
   scope: Cluster
   versions:
   - additionalPrinterColumns:
@@ -42,7 +42,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: NegociatedAPIResource describes the result of either the normalization of any number of imports of an API resource from external clusters (either physical or logical), or the the manual application of a CRD version for the corresponding GVR.
+        description: NegotiatedAPIResource describes the result of either the normalization of any number of imports of an API resource from external clusters (either physical or logical), or the the manual application of a CRD version for the corresponding GVR.
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
@@ -53,7 +53,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: NegociatedAPIResourceSpec holds the desired state of the NegociatedAPIResource (from the client).
+            description: NegotiatedAPIResourceSpec holds the desired state of the NegotiatedAPIResource (from the client).
             properties:
               categories:
                 description: categories is a list of grouped resources this custom resource belongs to (e.g. 'all'). This is published in API discovery documents, and used by clients to support invocations like `kubectl get all`.
@@ -142,7 +142,7 @@ spec:
             - scope
             type: object
           status:
-            description: NegociatedAPIResourceStatus communicates the observed state of the NegociatedAPIResource (from the controller).
+            description: NegotiatedAPIResourceStatus communicates the observed state of the NegotiatedAPIResource (from the controller).
             properties:
               apiResource:
                 type: string
@@ -150,7 +150,7 @@ spec:
                 type: string
               conditions:
                 items:
-                  description: NegociatedAPIResourceCondition contains details for the current condition of this negociated api resource.
+                  description: NegotiatedAPIResourceCondition contains details for the current condition of this negotiated api resource.
                   properties:
                     lastTransitionTime:
                       description: Last time the condition transitioned from one status to another.

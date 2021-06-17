@@ -32,8 +32,8 @@ func (c *FakeApiresourceV1alpha1) APIResourceImports() v1alpha1.APIResourceImpor
 	return &FakeAPIResourceImports{c}
 }
 
-func (c *FakeApiresourceV1alpha1) NegociatedAPIResources() v1alpha1.NegociatedAPIResourceInterface {
-	return &FakeNegociatedAPIResources{c}
+func (c *FakeApiresourceV1alpha1) NegotiatedAPIResources() v1alpha1.NegotiatedAPIResourceInterface {
+	return &FakeNegotiatedAPIResources{c}
 }
 
 // RESTClient returns a RESTClient that is used to communicate

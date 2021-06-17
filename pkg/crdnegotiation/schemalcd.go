@@ -286,7 +286,7 @@ func lcdForObject(fldPath *field.Path, existing, new *schema.Structural, lcd *sc
 			lcdProperties := existingProperties
 			if !newProperties.IsSuperset(existingProperties) {
 				if !narrowExisting {
-					errorList = append(errorList, field.Invalid(fldPath.Child("properties"), newProperties.Difference(existingProperties).List(), "properties value has been changed in an incompatible way"))
+					errorList = append(errorList, field.Invalid(fldPath.Child("properties"), existingProperties.Difference(newProperties).List(), "properties value have been removed in an incompatible way"))
 				}
 				lcdProperties = existingProperties.Intersection(newProperties)
 			}

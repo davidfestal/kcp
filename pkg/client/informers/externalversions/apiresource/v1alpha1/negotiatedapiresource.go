@@ -32,58 +32,58 @@ import (
 	cache "k8s.io/client-go/tools/cache"
 )
 
-// NegociatedAPIResourceInformer provides access to a shared informer and lister for
-// NegociatedAPIResources.
-type NegociatedAPIResourceInformer interface {
+// NegotiatedAPIResourceInformer provides access to a shared informer and lister for
+// NegotiatedAPIResources.
+type NegotiatedAPIResourceInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1alpha1.NegociatedAPIResourceLister
+	Lister() v1alpha1.NegotiatedAPIResourceLister
 }
 
-type negociatedAPIResourceInformer struct {
+type negotiatedAPIResourceInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
 }
 
-// NewNegociatedAPIResourceInformer constructs a new informer for NegociatedAPIResource type.
+// NewNegotiatedAPIResourceInformer constructs a new informer for NegotiatedAPIResource type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewNegociatedAPIResourceInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredNegociatedAPIResourceInformer(client, resyncPeriod, indexers, nil)
+func NewNegotiatedAPIResourceInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredNegotiatedAPIResourceInformer(client, resyncPeriod, indexers, nil)
 }
 
-// NewFilteredNegociatedAPIResourceInformer constructs a new informer for NegociatedAPIResource type.
+// NewFilteredNegotiatedAPIResourceInformer constructs a new informer for NegotiatedAPIResource type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredNegociatedAPIResourceInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredNegotiatedAPIResourceInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.ApiresourceV1alpha1().NegociatedAPIResources().List(context.TODO(), options)
+				return client.ApiresourceV1alpha1().NegotiatedAPIResources().List(context.TODO(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.ApiresourceV1alpha1().NegociatedAPIResources().Watch(context.TODO(), options)
+				return client.ApiresourceV1alpha1().NegotiatedAPIResources().Watch(context.TODO(), options)
 			},
 		},
-		&apiresourcev1alpha1.NegociatedAPIResource{},
+		&apiresourcev1alpha1.NegotiatedAPIResource{},
 		resyncPeriod,
 		indexers,
 	)
 }
 
-func (f *negociatedAPIResourceInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredNegociatedAPIResourceInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+func (f *negotiatedAPIResourceInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
+	return NewFilteredNegotiatedAPIResourceInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
-func (f *negociatedAPIResourceInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apiresourcev1alpha1.NegociatedAPIResource{}, f.defaultInformer)
+func (f *negotiatedAPIResourceInformer) Informer() cache.SharedIndexInformer {
+	return f.factory.InformerFor(&apiresourcev1alpha1.NegotiatedAPIResource{}, f.defaultInformer)
 }
 
-func (f *negociatedAPIResourceInformer) Lister() v1alpha1.NegociatedAPIResourceLister {
-	return v1alpha1.NewNegociatedAPIResourceLister(f.Informer().GetIndexer())
+func (f *negotiatedAPIResourceInformer) Lister() v1alpha1.NegotiatedAPIResourceLister {
+	return v1alpha1.NewNegotiatedAPIResourceLister(f.Informer().GetIndexer())
 }

@@ -16,7 +16,7 @@ type ColumnDefinition struct {
 
 type ColumnDefinitions []ColumnDefinition
 
-func (cd *ColumnDefinitions) ImportFromCRDVersion(crdVersion *apiextensionsv1.CustomResourceDefinitionVersion) *ColumnDefinitions {	
+func (cd *ColumnDefinitions) ImportFromCRDVersion(crdVersion *apiextensionsv1.CustomResourceDefinitionVersion) *ColumnDefinitions {
 	alreadyExists := func(name string) bool {
 		for _, colDef := range *cd {
 			if colDef.Name == name {
@@ -27,21 +27,21 @@ func (cd *ColumnDefinitions) ImportFromCRDVersion(crdVersion *apiextensionsv1.Cu
 	}
 
 	for _, apc := range crdVersion.AdditionalPrinterColumns {
-		if ! alreadyExists(apc.Name){
+		if !alreadyExists(apc.Name) {
 			jsonPath := apc.JSONPath
 			*cd = append(*cd, ColumnDefinition{
 				TableColumnDefinition: metav1.TableColumnDefinition{
-					Name: apc.Name,
-					Type: apc.Type,
-					Format: apc.Format,
+					Name:        apc.Name,
+					Type:        apc.Type,
+					Format:      apc.Format,
 					Description: apc.Description,
-					Priority: apc.Priority,
+					Priority:    apc.Priority,
 				},
 				JSONPath: &jsonPath,
 			})
 		}
 	}
-	return cd 
+	return cd
 }
 
 type SubResource struct {
@@ -49,13 +49,13 @@ type SubResource struct {
 }
 
 const (
-	ScaleSubResourceName string = "scale"
+	ScaleSubResourceName  string = "scale"
 	StatusSubResourceName string = "status"
 )
 
 type SubResources []SubResource
 
-func (sr *SubResources) ImportFromCRDVersion(crdVersion *apiextensionsv1.CustomResourceDefinitionVersion) *SubResources {	
+func (sr *SubResources) ImportFromCRDVersion(crdVersion *apiextensionsv1.CustomResourceDefinitionVersion) *SubResources {
 	alreadyExists := func(name string) bool {
 		for _, subResource := range *sr {
 			if subResource.Name == name {
@@ -66,20 +66,20 @@ func (sr *SubResources) ImportFromCRDVersion(crdVersion *apiextensionsv1.CustomR
 	}
 
 	if crdVersion.Subresources.Scale != nil {
-		if ! alreadyExists(ScaleSubResourceName){
+		if !alreadyExists(ScaleSubResourceName) {
 			*sr = append(*sr, SubResource{
 				Name: ScaleSubResourceName,
 			})
 		}
 	}
 	if crdVersion.Subresources.Status != nil {
-		if ! alreadyExists(StatusSubResourceName){
+		if !alreadyExists(StatusSubResourceName) {
 			*sr = append(*sr, SubResource{
 				Name: StatusSubResourceName,
 			})
 		}
 	}
-	return sr 
+	return sr
 }
 
 type GroupVersion struct {
@@ -92,13 +92,13 @@ func (v GroupVersion) String() string {
 	if group == "core" {
 		group = ""
 	}
-	return metav1.GroupVersion {
-		Group: v.Group,
+	return metav1.GroupVersion{
+		Group:   v.Group,
 		Version: v.Version,
 	}.String()
 }
 
-// CommonAPIResourceSpec holds the common content of both NegociatedAPIResourceSpec
+// CommonAPIResourceSpec holds the common content of both NegotiatedAPIResourceSpec
 // and APIResourceImportSpec.
 type CommonAPIResourceSpec struct {
 	GroupVersion GroupVersion `json:"groupVersion"`
@@ -114,12 +114,12 @@ type CommonAPIResourceSpec struct {
 	// +patchMergeKey=name
 	// +patchStrategy=merge
 	// +optional
-	SubResources    SubResources `json:"subResources,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
+	SubResources SubResources `json:"subResources,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
 
 	// +patchMergeKey=name
 	// +patchStrategy=merge
 	// +optional
-	ColumnDefinitions    ColumnDefinitions `json:"columnDefinitions,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
+	ColumnDefinitions ColumnDefinitions `json:"columnDefinitions,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
 }
 
 func (spec *CommonAPIResourceSpec) GetSchema() (*apiextensionsv1.JSONSchemaProps, error) {

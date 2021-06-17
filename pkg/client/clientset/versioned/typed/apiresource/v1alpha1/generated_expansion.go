@@ -20,4 +20,4 @@ package v1alpha1
 
 type APIResourceImportExpansion interface{}
 
-type NegociatedAPIResourceExpansion interface{}
+type NegotiatedAPIResourceExpansion interface{}

@@ -26,8 +26,8 @@ import (
 type Interface interface {
 	// APIResourceImports returns a APIResourceImportInformer.
 	APIResourceImports() APIResourceImportInformer
-	// NegociatedAPIResources returns a NegociatedAPIResourceInformer.
-	NegociatedAPIResources() NegociatedAPIResourceInformer
+	// NegotiatedAPIResources returns a NegotiatedAPIResourceInformer.
+	NegotiatedAPIResources() NegotiatedAPIResourceInformer
 }
 
 type version struct {
@@ -46,7 +46,7 @@ func (v *version) APIResourceImports() APIResourceImportInformer {
 	return &aPIResourceImportInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
-// NegociatedAPIResources returns a NegociatedAPIResourceInformer.
-func (v *version) NegociatedAPIResources() NegociatedAPIResourceInformer {
-	return &negociatedAPIResourceInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+// NegotiatedAPIResources returns a NegotiatedAPIResourceInformer.
+func (v *version) NegotiatedAPIResources() NegotiatedAPIResourceInformer {
+	return &negotiatedAPIResourceInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }

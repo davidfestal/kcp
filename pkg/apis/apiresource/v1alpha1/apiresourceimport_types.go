@@ -32,12 +32,12 @@ type APIResourceImport struct {
 }
 
 // SchemaUpdateStrategy defines the strategy for updating the
-// correspondoing negociated API resource
+// correspondoing negotiated API resource
 // based on the schema of this API Resource Import
 type SchemaUpdateStrategyType string
 
 const (
-	// UpdateNever means that the corresponding negociated API Resource will never be modified
+	// UpdateNever means that the corresponding negotiated API Resource will never be modified
 	// to take in account the schema of the API resource import.
 	// No LCD will be used, and the schema comparison will only
 	// serve to known whether the schema of an API Resource import would be compatible with the
@@ -45,31 +45,31 @@ const (
 	// accordingly.
 	UpdateNever SchemaUpdateStrategyType = "UpdateNever"
 
-	// UpdateUnpublished means that the corresponding negociated API Resource will be modified
+	// UpdateUnpublished means that the corresponding negotiated API Resource will be modified
 	// to take in account the schema of the API resource import, but only for unpublished
-	// negociated API resources.
-	// The modifications to the negociated API resource will be based (if possible) on a LCD schema between
-	// the schema of the resource import and the schema of the already-existing negociated API resource.
-	// Of course this is not valid if the negociated API resource has been "enforced" by applying a CRD for
+	// negotiated API resources.
+	// The modifications to the negotiated API resource will be based (if possible) on a LCD schema between
+	// the schema of the resource import and the schema of the already-existing negotiated API resource.
+	// Of course this is not valid if the negotiated API resource has been "enforced" by applying a CRD for
 	// the same GVR manually
 	UpdateUnpublished SchemaUpdateStrategyType = "UpdateUnpublished"
 
-	// UpdateUnpublished means that the corresponding negociated API Resource will be modified
+	// UpdateUnpublished means that the corresponding negotiated API Resource will be modified
 	// to take in account the schema of the API resource import, even if the already-existing
-	// negociated API resource has already been published (as a CRD).
-	// The modifications to the negociated API resource will be based (if possible) on a LCD schema between
-	// the schema of the resource import and the schema of the already-existing negociated API resource.
-	// Of course this is not valid if the negociated API resource has been "enforced" by applying a CRD for
+	// negotiated API resource has already been published (as a CRD).
+	// The modifications to the negotiated API resource will be based (if possible) on a LCD schema between
+	// the schema of the resource import and the schema of the already-existing negotiated API resource.
+	// Of course this is not valid if the negotiated API resource has been "enforced" by applying a CRD for
 	// the same GVR manually
 	UpdatePublished SchemaUpdateStrategyType = "UpdatePublished"
 )
 
-func (strategy SchemaUpdateStrategyType) CanUdpate(negociatedAPIResourceIsPublished bool) bool {
+func (strategy SchemaUpdateStrategyType) CanUdpate(negotiatedAPIResourceIsPublished bool) bool {
 	switch strategy {
 	case UpdateNever:
 		return false
 	case UpdateUnpublished:
-		return !negociatedAPIResourceIsPublished
+		return !negotiatedAPIResourceIsPublished
 	case UpdatePublished:
 		return true
 	}
@@ -96,14 +96,14 @@ type APIResourceImportConditionType string
 
 const (
 	// Compatible means that this API Resource import is compatible with the current
-	// Negociated API Resource
+	// Negotiated API Resource
 	Compatible APIResourceImportConditionType = "Compatible"
 	// Available means that this API Resource import is compatible with the current
-	// Negociated API Resource, which has been published as a CRD
+	// Negotiated API Resource, which has been published as a CRD
 	Available APIResourceImportConditionType = "Available"
 )
 
-// APIResourceImportCondition contains details for the current condition of this negociated api resource.
+// APIResourceImportCondition contains details for the current condition of this negotiated api resource.
 type APIResourceImportCondition struct {
 	// Type is the type of the condition. Types include Compatible.
 	Type APIResourceImportConditionType `json:"type"`

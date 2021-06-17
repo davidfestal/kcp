@@ -56,8 +56,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 	// Group=apiresource.kcp.dev, Version=v1alpha1
 	case v1alpha1.SchemeGroupVersion.WithResource("apiresourceimports"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Apiresource().V1alpha1().APIResourceImports().Informer()}, nil
-	case v1alpha1.SchemeGroupVersion.WithResource("negociatedapiresources"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Apiresource().V1alpha1().NegociatedAPIResources().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("negotiatedapiresources"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Apiresource().V1alpha1().NegotiatedAPIResources().Informer()}, nil
 
 		// Group=cluster.example.dev, Version=v1alpha1
 	case clusterv1alpha1.SchemeGroupVersion.WithResource("clusters"):

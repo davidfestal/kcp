@@ -22,6 +22,6 @@ package v1alpha1
 // APIResourceImportLister.
 type APIResourceImportListerExpansion interface{}
 
-// NegociatedAPIResourceListerExpansion allows custom methods to be added to
-// NegociatedAPIResourceLister.
-type NegociatedAPIResourceListerExpansion interface{}
+// NegotiatedAPIResourceListerExpansion allows custom methods to be added to
+// NegotiatedAPIResourceLister.
+type NegotiatedAPIResourceListerExpansion interface{}

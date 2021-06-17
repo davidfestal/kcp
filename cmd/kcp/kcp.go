@@ -204,7 +204,7 @@ func main() {
 							syncerMode = cluster.SyncerModePush
 						}
 
-						clientutils.EnableMultiCluster(adminConfig, nil, "clusters", "customresourcedefinitions", "apiresourceimports", "negociatedapiresources")
+						clientutils.EnableMultiCluster(adminConfig, nil, "clusters", "customresourcedefinitions", "apiresourceimports", "negotiatedapiresources")
 						clusterController := cluster.NewController(
 							adminConfig,
 							syncerImage,

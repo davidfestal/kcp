@@ -30,8 +30,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
 		&APIResourceImport{},
 		&APIResourceImportList{},
-		&NegociatedAPIResource{},
-		&NegociatedAPIResourceList{},
+		&NegotiatedAPIResource{},
+		&NegotiatedAPIResourceList{},
 	)
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
 	return nil

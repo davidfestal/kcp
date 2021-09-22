@@ -1,0 +1,249 @@
+<diagram program="umletino" version="14.4.0-SNAPSHOT"><zoom_level>10</zoom_level><help_text></help_text><element><id>UMLState</id><coordinates><x>60</x><y>10</y><w>160</w><h>50</h></coordinates><panel_attributes>APIResourceImport
+Ctreate / UpdateSpec
+type=receiver
+group=1</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>140</x><y>50</y><w>30</w><h>60</h></coordinates><panel_attributes>lt=&lt;-
+
+group=1</panel_attributes><additional_attributes>10;40;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>70</x><y>180</y><w>160</w><h>50</h></coordinates><panel_attributes>Search for related
+NegotiatedAPIResource
+--
+  =&gt; _nar
+group=1</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>140</x><y>220</y><w>30</w><h>60</h></coordinates><panel_attributes>lt=&lt;-
+group=1</panel_attributes><additional_attributes>10;40;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>20</x><y>260</y><w>270</w><h>110</h></coordinates><panel_attributes>Create or Update the
+NegotiatedAPIResource
+--
+With:
+_nar.spec.imports[_ari.matadata.name] = {
+  generationNumber = _ari.matadata.generation
+}
+valign=top
+bg=orange
+group=1</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLState</id><coordinates><x>70</x><y>90</y><w>160</w><h>60</h></coordinates><panel_attributes>Get current
+APIResourceImport
+--
+  =&gt; _ari
+group=1</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLSpecialState</id><coordinates><x>130</x><y>420</y><w>40</w><h>40</h></coordinates><panel_attributes>
+group=1</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>140</x><y>360</y><w>30</w><h>80</h></coordinates><panel_attributes>lt=&lt;-
+group=1</panel_attributes><additional_attributes>10;60;10;10</additional_attributes></element><element><id>Relation</id><coordinates><x>70</x><y>430</y><w>80</w><h>70</h></coordinates><panel_attributes>lt=&lt;-
+Conflict
+
+group=1</panel_attributes><additional_attributes>10;50;10;10;60;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>0</x><y>570</y><w>160</w><h>50</h></coordinates><panel_attributes>APIResourceImport
+Create / UpdateSpec
+type=sender
+group=1</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLState</id><coordinates><x>710</x><y>20</y><w>180</w><h>50</h></coordinates><panel_attributes>NegotiatedAPIResource
+Create / UpdateSpec
+type=receiver</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLState</id><coordinates><x>720</x><y>100</y><w>160</w><h>50</h></coordinates><panel_attributes>Get current
+NegotiatedAPIResource
+--
+  =&gt; _nar</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>790</x><y>60</y><w>30</w><h>60</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;40;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>720</x><y>410</y><w>160</w><h>60</h></coordinates><panel_attributes>Search for CRD
+with API version
+--
+  =&gt; _crd</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLSpecialState</id><coordinates><x>780</x><y>740</y><w>40</w><h>40</h></coordinates><panel_attributes></panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>310</x><y>750</y><w>490</w><h>80</h></coordinates><panel_attributes>lt=&lt;-
+_nar.spec.enforced == true</panel_attributes><additional_attributes>10;60;10;10;470;10</additional_attributes></element><element><id>Relation</id><coordinates><x>790</x><y>460</y><w>30</w><h>70</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;50;10;10</additional_attributes></element><element><id>UMLSpecialState</id><coordinates><x>300</x><y>810</y><w>40</w><h>40</h></coordinates><panel_attributes></panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>90</x><y>820</y><w>230</w><h>100</h></coordinates><panel_attributes>lt=&lt;-
+  _crd.metadata.generation
+                     !=
+ _nar.spec.enforcedCRDGeneration ?
+</panel_attributes><additional_attributes>10;80;10;10;210;10</additional_attributes></element><element><id>Relation</id><coordinates><x>330</x><y>820</y><w>260</w><h>90</h></coordinates><panel_attributes>lt=&lt;-
+  _crd.metadata.generation
+                     ==
+ _nar.spec.enforcedCRDGeneration ?
+</panel_attributes><additional_attributes>40;70;40;10;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>30</x><y>900</y><w>160</w><h>50</h></coordinates><panel_attributes>NegotiatedAPIResource
+Create / UpdateSpec
+type=sender</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>486</x><y>350</y><w>310</w><h>60</h></coordinates><panel_attributes>lt=&lt;-
+At least 1 apiResourceImport
+has changed vs generations
+in _nar.imports</panel_attributes><additional_attributes>10;20;290;20</additional_attributes></element><element><id>UMLState</id><coordinates><x>356</x><y>420</y><w>160</w><h>50</h></coordinates><panel_attributes>NegotiatedAPIResource
+Create / UpdateSpec
+type=sender</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLState</id><coordinates><x>20</x><y>480</y><w>120</w><h>50</h></coordinates><panel_attributes>Requeue
+APIResourceImport
+Create / UpdateSpec
+group=1</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>65</x><y>520</y><w>30</w><h>70</h></coordinates><panel_attributes>lt=&lt;-
+group=1</panel_attributes><additional_attributes>10;50;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>355</x><y>340</y><w>140</w><h>50</h></coordinates><panel_attributes>Requeue
+NegotiatedAPIResource
+Create / UpdateSpec</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>425</x><y>380</y><w>30</w><h>60</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;40;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>560</x><y>940</y><w>240</w><h>150</h></coordinates><panel_attributes>Schema
+Compatibility Check
+--
+- Ful or iterative according to apiResourceImport changes
+- Filtered (non changed apiResourceImports are skipped - only when Iterative)
+- Reducing the current schema according to publishing rules
+style=wordwrap
+valign=top
+</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLState</id><coordinates><x>224</x><y>1024</y><w>300</w><h>180</h></coordinates><panel_attributes>Update the
+NegotiatedAPIResource Status
+--
+_nar.status.apiDefinition =
+      importFrom(_crd)
+_nar.status.conditions[Published] = true 
+_nar.status.imports =
+      calculated during Schema compatibility check
+_nar.status.negotiatedGeneration =
+      _nar.metadata.generation
+_nar.status.publishedGeneration =
+      _nar.metadata.generation
+style=wordwrap
+valign=top
+bg=red</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLState</id><coordinates><x>254</x><y>894</y><w>230</w><h>80</h></coordinates><panel_attributes>Schema
+Compatibility Check
+--
+- Full
+- Never Reduce the current schema
+style=wordwrap
+valign=top
+</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLState</id><coordinates><x>720</x><y>270</y><w>160</w><h>50</h></coordinates><panel_attributes>Get related
+APIResourceImports
+--
+  =&gt; _imps</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>790</x><y>310</y><w>30</w><h>60</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;40;10;10</additional_attributes></element><element><id>Relation</id><coordinates><x>790</x><y>140</y><w>30</w><h>70</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;50;10;10</additional_attributes></element><element><id>UMLSpecialState</id><coordinates><x>780</x><y>350</y><w>40</w><h>40</h></coordinates><panel_attributes>type=decision</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>790</x><y>380</y><w>30</w><h>50</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;30;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>540</x><y>1141</y><w>280</w><h>140</h></coordinates><panel_attributes>Update the
+NegotiatedAPIResource Status
+--
+_nar.status.commonResourceAPI =
+      from the schema compatibility check result
+_nar.status.imports =
+      calculated during Schema compatibility check
+_nar.status.negotiatedGeneration =
+      _nar.metadata.generation
+style=wordwrap
+valign=top
+bg=red</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>140</x><y>140</y><w>30</w><h>60</h></coordinates><panel_attributes>lt=&lt;-
+group=1</panel_attributes><additional_attributes>10;40;10;10</additional_attributes></element><element><id>Relation</id><coordinates><x>360</x><y>970</y><w>30</w><h>70</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;50;10;10</additional_attributes></element><element><id>Relation</id><coordinates><x>670</x><y>1080</y><w>30</w><h>80</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;60;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>750</x><y>190</y><w>100</w><h>40</h></coordinates><panel_attributes>Cleanup
+_nar.status.Error</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>790</x><y>220</y><w>30</w><h>70</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;50;10;10</additional_attributes></element><element><id>UMLSpecialState</id><coordinates><x>780</x><y>510</y><w>40</w><h>40</h></coordinates><panel_attributes>type=decision</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>404</x><y>520</y><w>390</w><h>70</h></coordinates><panel_attributes>lt=&lt;-
+m2=_crd does not exists &amp;&amp; _nar.spec.enforced == true</panel_attributes><additional_attributes>10;50;10;10;370;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>294</x><y>570</y><w>230</w><h>90</h></coordinates><panel_attributes>Update the
+NegotiatedAPIResource
+--
+_nar.spec.enforce = false
+_nar.spec.enforcedCRDGeneration = 0
+style=wordwrap
+valign=top
+bg=orange</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>403</x><y>650</y><w>30</w><h>60</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;40;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>334</x><y>690</y><w>160</w><h>50</h></coordinates><panel_attributes>NegotiatedAPIResource
+Create / UpdateSpec
+type=sender</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>790</x><y>540</y><w>50</w><h>110</h></coordinates><panel_attributes>lt=&lt;-
+m1=else</panel_attributes><additional_attributes>10;90;10;10</additional_attributes></element><element><id>UMLSpecialState</id><coordinates><x>780</x><y>630</y><w>40</w><h>40</h></coordinates><panel_attributes>type=decision</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>810</x><y>640</y><w>650</w><h>60</h></coordinates><panel_attributes>lt=&lt;-
+m2=_nar.spec.enforced == false &amp;&amp; _crd exists &amp;&amp;\n_nar.metadata.generation == _nar.status.publishedGeneration &amp;&amp;\n_crd.metadata.generation &gt; _nar.status.controlledCRDGeneration
+</panel_attributes><additional_attributes>630;30;630;10;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>1350</x><y>750</y><w>170</w><h>60</h></coordinates><panel_attributes>Build CRDVersion
+from _nar.status.apiDefinition
+--
+  =&gt; _narCRDVersion</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLSpecialState</id><coordinates><x>1420</x><y>670</y><w>40</w><h>40</h></coordinates><panel_attributes>type=decision</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1450</x><y>680</y><w>310</w><h>280</h></coordinates><panel_attributes>lt=&lt;-
+m2=_nar.status.apiDefinition does not exist</panel_attributes><additional_attributes>290;260;290;10;10;10</additional_attributes></element><element><id>Relation</id><coordinates><x>1430</x><y>700</y><w>50</w><h>70</h></coordinates><panel_attributes>lt=&lt;-
+m1=else</panel_attributes><additional_attributes>10;50;10;10</additional_attributes></element><element><id>UMLSpecialState</id><coordinates><x>1420</x><y>850</y><w>40</w><h>40</h></coordinates><panel_attributes>type=decision</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1430</x><y>800</y><w>30</w><h>70</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;50;10;10</additional_attributes></element><element><id>Relation</id><coordinates><x>1452</x><y>861</y><w>280</w><h>100</h></coordinates><panel_attributes>lt=&lt;-
+m2=_narCRDVersion != _crd.version</panel_attributes><additional_attributes>260;80;260;10;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>1612</x><y>941</y><w>230</w><h>90</h></coordinates><panel_attributes>Update the
+NegotiatedAPIResource
+--
+_nar.spec.enforce = true
+_nar.spec.enforcedCRDGeneration =
+      _crd.metadata.generation
+style=wordwrap
+valign=top
+bg=orange</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1701</x><y>1021</y><w>30</w><h>150</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;130;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>1632</x><y>1151</y><w>160</w><h>50</h></coordinates><panel_attributes>NegotiatedAPIResource
+Create / UpdateSpec
+type=sender</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLState</id><coordinates><x>1322</x><y>942</y><w>230</w><h>90</h></coordinates><panel_attributes>Update the
+NegotiatedAPIResource Status
+--
+_nar.status.controlledCRDGeneration =
+    _crd.metadata.generation
+style=wordwrap
+valign=top
+bg=red</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1430</x><y>880</y><w>50</w><h>80</h></coordinates><panel_attributes>lt=&lt;-
+m2=else</panel_attributes><additional_attributes>10;60;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>1362</x><y>1067</y><w>140</w><h>50</h></coordinates><panel_attributes>Requeue
+NegotiatedAPIResource
+Create / UpdateSpec</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1432</x><y>1107</y><w>30</w><h>60</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;40;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>1363</x><y>1147</y><w>160</w><h>50</h></coordinates><panel_attributes>NegotiatedAPIResource
+Create / UpdateSpec
+type=sender</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1430</x><y>1020</y><w>30</w><h>70</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;50;10;10</additional_attributes></element><element><id>Relation</id><coordinates><x>790</x><y>660</y><w>50</w><h>100</h></coordinates><panel_attributes>lt=&lt;-
+m2=\nelse</panel_attributes><additional_attributes>10;80;10;10</additional_attributes></element><element><id>Relation</id><coordinates><x>810</x><y>750</y><w>530</w><h>100</h></coordinates><panel_attributes>lt=&lt;-
+_nar.spec.enforced == false</panel_attributes><additional_attributes>360;80;360;10;10;10</additional_attributes></element><element><id>UMLSpecialState</id><coordinates><x>1150</x><y>830</y><w>40</w><h>40</h></coordinates><panel_attributes>type=decision</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>620</x><y>840</y><w>550</w><h>120</h></coordinates><panel_attributes>lt=&lt;-
+_nar.status.negotiatedGeneration
+                      &lt; 
+_nar.metadata.generation  </panel_attributes><additional_attributes>10;100;10;10;530;10</additional_attributes></element><element><id>Relation</id><coordinates><x>1160</x><y>860</y><w>50</w><h>70</h></coordinates><panel_attributes>lt=&lt;-
+m1=else</panel_attributes><additional_attributes>10;50;10;10</additional_attributes></element><element><id>UMLSpecialState</id><coordinates><x>1150</x><y>910</y><w>40</w><h>40</h></coordinates><panel_attributes>type=decision</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>960</x><y>920</y><w>210</w><h>120</h></coordinates><panel_attributes>lt=&lt;-
+_nar.status.publishedGeneration
+                      &lt; 
+_nar.metadata.generation 
+</panel_attributes><additional_attributes>10;100;10;10;190;10</additional_attributes></element><element><id>UMLSpecialState</id><coordinates><x>950</x><y>1020</y><w>40</w><h>40</h></coordinates><panel_attributes>type=decision</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>980</x><y>1030</y><w>270</w><h>60</h></coordinates><panel_attributes>lt=&lt;-
+m2=_nar.spec.publish == true</panel_attributes><additional_attributes>250;40;250;10;10;10</additional_attributes></element><element><id>UMLSpecialState</id><coordinates><x>1160</x><y>990</y><w>20</w><h>20</h></coordinates><panel_attributes>type=final</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1160</x><y>940</y><w>50</w><h>70</h></coordinates><panel_attributes>lt=&lt;-
+m1=else</panel_attributes><additional_attributes>10;50;10;10</additional_attributes></element><element><id>Relation</id><coordinates><x>960</x><y>1050</y><w>50</w><h>70</h></coordinates><panel_attributes>lt=&lt;-
+m1=else</panel_attributes><additional_attributes>10;50;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>900</x><y>1100</y><w>140</w><h>50</h></coordinates><panel_attributes>Cleanup
+CRD Version
+in K8S</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>960</x><y>1140</y><w>30</w><h>70</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;50;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>859</x><y>1188</y><w>230</w><h>90</h></coordinates><panel_attributes>Update the
+NegotiatedAPIResource Status
+--
+_nar.status.publishedGeneration =
+      _nar.metadata.generation
+_nar.status.controlledCRDGeneration = 0
+
+valign=top
+bg=red</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLState</id><coordinates><x>1160</x><y>1070</y><w>140</w><h>60</h></coordinates><panel_attributes>Create or Update
+CRD Version in K8S
+--
+  =&gt; _crd</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLState</id><coordinates><x>1119</x><y>1168</y><w>230</w><h>110</h></coordinates><panel_attributes>Update the
+NegotiatedAPIResource Status
+--
+_nar.status.publishedGeneration =
+      _nar.metadata.generation
+_nar.status.controlledCRDGeneration =
+    _crd.metadata.generation
+style=wordwrap
+valign=top
+bg=red</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1220</x><y>1120</y><w>30</w><h>70</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;50;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>604</x><y>1315</y><w>140</w><h>50</h></coordinates><panel_attributes>Requeue
+NegotiatedAPIResource
+Create / UpdateSpec</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>674</x><y>1355</y><w>30</w><h>60</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;40;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>605</x><y>1395</y><w>160</w><h>50</h></coordinates><panel_attributes>NegotiatedAPIResource
+Create / UpdateSpec
+type=sender</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>670</x><y>1270</y><w>30</w><h>60</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;40;10;10</additional_attributes></element><element><id>UMLSpecialState</id><coordinates><x>221</x><y>433</y><w>20</w><h>20</h></coordinates><panel_attributes>type=final
+group=1</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>161</x><y>433</y><w>80</w><h>40</h></coordinates><panel_attributes>lt=&lt;-
+m1=else
+group=1</panel_attributes><additional_attributes>60;10;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>1607</x><y>13</y><w>180</w><h>50</h></coordinates><panel_attributes>CRD
+Create / UpdateSpec
+type=receiver</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLState</id><coordinates><x>1617</x><y>113</y><w>160</w><h>50</h></coordinates><panel_attributes>Get current
+CRD
+--
+  =&gt; _crd</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1690</x><y>53</y><w>30</w><h>80</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;60;10;10</additional_attributes></element><element><id>Relation</id><coordinates><x>1690</x><y>153</y><w>30</w><h>70</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;50;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>1617</x><y>203</y><w>160</w><h>60</h></coordinates><panel_attributes>Get related
+NegotiatedAPIResource
+--
+  =&gt; _nar</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1550</x><y>310</y><w>150</w><h>40</h></coordinates><panel_attributes>lt=&lt;-
+m1=_nar doesn't exist</panel_attributes><additional_attributes>10;10;130;10</additional_attributes></element><element><id>UMLSpecialState</id><coordinates><x>1680</x><y>300</y><w>40</w><h>40</h></coordinates><panel_attributes>type=decision</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1690</x><y>250</y><w>30</w><h>70</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;50;10;10</additional_attributes></element><element><id>UMLSpecialState</id><coordinates><x>1540</x><y>310</y><w>20</w><h>20</h></coordinates><panel_attributes>type=final</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1690</x><y>333</y><w>50</w><h>80</h></coordinates><panel_attributes>lt=&lt;-
+else
+</panel_attributes><additional_attributes>10;60;10;10</additional_attributes></element><element><id>UMLSpecialState</id><coordinates><x>1680</x><y>390</y><w>40</w><h>40</h></coordinates><panel_attributes>type=decision</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1710</x><y>400</y><w>260</w><h>90</h></coordinates><panel_attributes>lt=&lt;-
+m2=_nar.spec.enforced == true</panel_attributes><additional_attributes>240;70;240;10;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>1842</x><y>473</y><w>230</w><h>80</h></coordinates><panel_attributes>Update the
+NegotiatedAPIResource
+--
+_nar.spec.enforcedCRDGeneration =
+      _crd.metadata.generation
+style=wordwrap
+valign=top
+bg=orange</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLState</id><coordinates><x>1877</x><y>603</y><w>160</w><h>50</h></coordinates><panel_attributes>NegotiatedAPIResource
+Create / UpdateSpec
+type=sender</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1940</x><y>540</y><w>30</w><h>80</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;60;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>1622</x><y>470</y><w>140</w><h>50</h></coordinates><panel_attributes>Requeue
+NegotiatedAPIResource
+Create / UpdateSpec</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1692</x><y>510</y><w>30</w><h>60</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;40;10;10</additional_attributes></element><element><id>UMLState</id><coordinates><x>1623</x><y>550</y><w>160</w><h>50</h></coordinates><panel_attributes>NegotiatedAPIResource
+Create / UpdateSpec
+type=sender</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1690</x><y>423</y><w>30</w><h>70</h></coordinates><panel_attributes>lt=&lt;-</panel_attributes><additional_attributes>10;50;10;10</additional_attributes></element><element><id>UMLNote</id><coordinates><x>920</x><y>23</y><w>590</w><h>600</h></coordinates><panel_attributes>bg=#888888
+style=wordwrap
+NegotiatedAPIResource is the main reconciled resource and should contain in its spec and status all the data needed to achieve a consistent spec / status reconciliation:
+
+spec:
+  - enforced: bool
+      =&gt; the NegociatdAPIResource APIDefinition (schema included) should be enforced from the current CRD 
+  - enforcedCRDGeneration: int
+      =&gt; generation of the CRD resource from which the NegociationAPIResource should be enforced
+  - publish: bool
+      =&gt; The NegociationAPIResource should be published as CRD
+  - imports: map[string] =&gt; int
+      =&gt; Keys are names of APIReosurceImports corresponding to this GVR - Values are the generation numbers of each APIResourceImport  that should be part of the Schema compatibility check
+ 
+status:
+  - controlledCRDGeneration: int
+      =&gt; generation of the CRD resource that has been  published from this NegociationAPIResource (when not in enforced mode)
+  - imports: map[string] =&gt; { int, compatibility result }
+      =&gt; Keys are names of APIReosurceImports corresponding to this GVR - Values contain the generation numbers of each APIResourceImport  that took part in the current Schema compatibility check, as well as the result of their compatibility status.
+  - apiDefintiion: commonAPIResourceSpec
+      =&gt; the API defintion either resuting from the API negociation or enforced from the CRD
+  - negotiatedGeneration: int
+      =&gt; generation number of the last negotiated NegotiatedAPIResource
+  - publishedGeneration: int
+      =&gt; generation number of the last published NegotiatedAPIResource
+
+The 2 last fields are used to manage a 2-phase reconciliation of NegotiatedAPIResource: first negotiation, then publishing.
+
+Still TBD:
+- Correctly manage the setting and consistent use of the NAR.spec.publish field
+- Define React on status change (CRD -&gt; NAR &amp;&amp; NAR -&gt; ARI)
+- Define React of CRD Delete (probably only requeue NAR Create/Change event) 
+- Manage the case when CRD generation is reset to 1 because CRD has been deleted and recreated (check with CRD uiid ?).
+ 
+   </panel_attributes><additional_attributes></additional_attributes></element></diagram>

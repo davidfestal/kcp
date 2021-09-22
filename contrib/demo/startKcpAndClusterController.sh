@@ -20,7 +20,8 @@ echo "Waiting for KCP server to be up and running..."
 wait_command "grep 'Serving securely' ${CURRENT_DIR}/kcp.log"
 
 echo "Applying CRDs..."
-kubectl apply -f config/
+kubectl --kubeconfig=${KUBECONFIG} --context=admin apply -f ${KCP_ROOT}/config
+kubectl --kubeconfig=${KUBECONFIG} --context=user apply -f ${KCP_ROOT}/config
 
 echo ""
 echo "Starting Cluster Controller..."

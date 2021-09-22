@@ -1,0 +1,52 @@
+Kubectl / west:
+---------------
+../contrib/dwo/start_location.sh west
+
+
+KCP:
+----
+../contrib/dwo/start_kcp_and_cluster_controller.sh
+
+
+Kubectl / KCP:
+--------------
+kubectl api-resources
+../contrib/dwo/add_location.sh west
+kubectl get clusters -o wide
+
+
+DW / KCP:
+---------
+../contrib/dwo/install_dw.sh
+../contrib/dwo/start_dw.sh
+
+
+Kubectl / KCP:
+--------------
+kubectl create namespace test1
+kubectl apply -f ../contrib/dwo/flattened_theia-next.yaml -n test1
+show reconciling ...
+show deployment in UI
+
+Kubectl / WEST:
+---------------
+kubectl get deployments -n test1
+
+
+Kubectl / KCP:
+--------------
+../contrib/dwo/assign_to_location.sh test1 west
+
+
+Kubectl / WEST:
+---------------
+kubectl get deployments -n test1
+kubectl get pods -n test1
+
+
+Kubectl / KCP:
+--------------
+kubectl get deployments -n test1
+kubectl get dw -n test1
+
+

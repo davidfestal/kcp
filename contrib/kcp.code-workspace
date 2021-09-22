@@ -118,6 +118,18 @@
 				"env": { "GOMOD": "${workspaceFolder:kcp}/go.mod", },
 				"cwd": "${workspaceFolder:kcp}",
 				"args": ["-kubeconfig", "${workspaceFolder:kcp}/.kcp/data/admin.kubeconfig", "-context", "admin"],
+			},
+			{
+				"name": "Launch all-in-one kcp in push mode For dwo-test",
+				"type": "go",
+				"request": "launch",
+				"mode": "debug",
+				"program": "${workspaceFolder:kcp}/cmd/kcp",
+				"env": {
+					"GOMOD": "${workspaceFolder:kcp}/go.mod"
+				},
+				"cwd": "${workspaceFolder:kcp}/test-dwo",
+				"args": ["start", "--install_cluster_controller", "--pull_mode=false", "--push_mode=true", "--auto_publish_apis=true", "--resources_to_sync", "persistentvolumeclaims,pods,ingresses.networking.k8s.io,deployments.apps,configmaps,secrets,jobs,services,serviceaccounts"]
 			}
 		]
 	}

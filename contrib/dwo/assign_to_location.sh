@@ -25,3 +25,9 @@ done
 for name in $(kubectl get deployments -o name  -n ${NAMESPACE}); do
 kubectl --context=${CONTEXT} patch "$name" -n ${NAMESPACE} --patch=$PATCH
 done
+for name in $(kubectl get roles -o name  -n ${NAMESPACE}); do
+kubectl --context=${CONTEXT} patch "$name" -n ${NAMESPACE} --patch=$PATCH
+done
+for name in $(kubectl get rolebindings -o name  -n ${NAMESPACE}); do
+kubectl --context=${CONTEXT} patch "$name" -n ${NAMESPACE} --patch=$PATCH
+done

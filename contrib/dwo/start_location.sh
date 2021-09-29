@@ -17,7 +17,7 @@ EOF
 sed -e 's/^/    /' ${DWO_DEMO_ROOT}/${LOCATION_NAME}.kubeconfig >> ${DWO_DEMO_ROOT}/${LOCATION_NAME}.yaml
 
 export KUBECONFIG=${DWO_DEMO_ROOT}/${LOCATION_NAME}.kubeconfig
-kubectl --kubeconfig=${KUBECONFIG} apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml | sed "s/--publish-status-address=localhost/--report-node-internal-ip-address/g" | kubectl --kubeconfig=${KUBECONFIG} apply -f -
 sleep 1
 kubectl --kubeconfig=${KUBECONFIG} wait --namespace ingress-nginx \
   --for=condition=ready pod \

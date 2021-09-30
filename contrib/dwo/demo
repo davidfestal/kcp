@@ -1,6 +1,6 @@
 Kubectl / west:
 ---------------
-../contrib/dwo/start_location.sh west
+../contrib/dwo/create_location.sh west
 
 
 KCP:
@@ -11,14 +11,14 @@ KCP:
 Kubectl / KCP:
 --------------
 kubectl api-resources
-../contrib/dwo/add_location.sh west
+../contrib/dwo/add_location.sh west admin
 kubectl get clusters -o wide
 
 
 DW / KCP:
 ---------
-../contrib/dwo/install_dw.sh
-../contrib/dwo/start_dw.sh
+../contrib/dwo/install_dw.sh kcp-apps.192.168.1.38.sslip.io admin
+../contrib/dwo/start_dw.sh admin./bin/ingress-controller -kubeconfig ${KUBECONFIG} -envoyxds -domain=kcp-apps.192.168.1.38.sslip.io
 
 
 Kubectl / KCP:

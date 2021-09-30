@@ -1,12 +1,13 @@
-if [ $# -ne 2 ]; then
-    echo "assign_to_location.sh <namespace> <location name> [<logical cluster=admin>]"
+if [ $# -ne 3 ]; then
+    echo "assign_to_location.sh <namespace> <location name> <logical cluster>"
     echo
     echo "Assigns the resource of a KCP namespace to a given location"
+    exit 1
 fi
 
 NAMESPACE=$1
 CLUSTER_NAME=$2
-CONTEXT=${3:-admin}
+CONTEXT=$3
 
 PATCH='{"metadata":{"labels":{"kcp.dev/cluster":"'${CLUSTER_NAME}'"}}}'
 

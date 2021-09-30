@@ -1,5 +1,6 @@
 .kcp
 contrib/demo/clusters/kind/*.yaml
 contrib/demo/clusters/kind/*.kubeconfig
+contrib/dwo/locations/
 *.log
 coverage.*

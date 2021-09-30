@@ -1,5 +1,13 @@
 #!/bin/bash
 
+if [ $# -ne 1 ]; then
+    echo "start_dw.sh <logical cluster>"
+    echo
+    echo " starts the DevWorkspace controller against a given KCP logical cluster"
+    exit 1
+fi
+CONTEXT=$1
+
 KCP_ROOT="$(dirname "${BASH_SOURCE}")/../.."
 DWO_DEMO_ROOT="$(dirname "${BASH_SOURCE}")"
 if [[ ${DWO_ROOT} == "" ]]; then

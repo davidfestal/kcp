@@ -21,6 +21,18 @@ DW / KCP:
 ../contrib/dwo/start_dw.sh admin./bin/ingress-controller -kubeconfig ${KUBECONFIG} -envoyxds -domain=kcp-apps.192.168.1.38.sslip.io
 
 
+KCP Ingress Controller:
+-----------------------
+
+./bin/ingress-controller -kubeconfig ${KUBECONFIG} -envoyxds -domain=kcp-apps.192.168.1.38.sslip.io
+
+
+Envoy:
+------
+
+sudo envoy -l debug -c utils/envoy/bootstrap.yaml
+
+
 Kubectl / KCP:
 --------------
 kubectl create namespace test1

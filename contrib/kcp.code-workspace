@@ -7,6 +7,10 @@
 		{
 			"name": "kcp",
 			"path": ".."
+		},
+		{
+			"name": "kcp-ingress",
+			"path": "../../../../../../git/kcp-ingress"
 		}
 	],
 	"tasks": {

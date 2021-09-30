@@ -11,9 +11,9 @@ CONTEXT=$3
 
 PATCH='{"metadata":{"labels":{"kcp.dev/cluster":"'${CLUSTER_NAME}'"}}}'
 
-for name in $(kubectl get ingresses -o name -n ${NAMESPACE}); do
-kubectl --context=${CONTEXT} patch "$name" -n ${NAMESPACE} --patch=$PATCH
-done
+#for name in $(kubectl get ingresses -o name -n ${NAMESPACE}); do
+#kubectl --context=${CONTEXT} patch "$name" -n ${NAMESPACE} --patch=$PATCH
+#done
 for name in $(kubectl get services -o name -n ${NAMESPACE}); do
 kubectl --context=${CONTEXT} patch "$name" -n ${NAMESPACE} --patch=$PATCH
 done

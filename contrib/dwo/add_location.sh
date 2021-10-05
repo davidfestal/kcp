@@ -14,4 +14,9 @@ DWO_DEMO_ROOT="$(dirname "${BASH_SOURCE}")"
 export KCP_DATA_ROOT=${KCP_DATA_ROOT:-$(pwd)}
 export KUBECONFIG=${KCP_DATA_ROOT}/.kcp/data/admin.kubeconfig
 
+echo
+echo "=     Adding ${LOCATION_NAME} to logical cluster ${CONTEXT}"
+echo "=     => kubectl --context=${CONTEXT} apply -f .../${LOCATION_NAME}.yaml"
+echo "===================================================================="
+
 kubectl --context=${CONTEXT} apply -f ${DWO_DEMO_ROOT}/locations/${LOCATION_NAME}.yaml

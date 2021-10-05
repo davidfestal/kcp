@@ -14,11 +14,14 @@ if [[ ${DWO_ROOT} == "" ]]; then
   echo "Set the DWO root"
   exit 1
 fi
-CONTEXT=${1:-admin}
 
 
 export KCP_DATA_ROOT=${KCP_DATA_ROOT:-$(pwd)}
 export KUBECONFIG=${KCP_DATA_ROOT}/.kcp/data/admin.kubeconfig
+
+echo
+echo "= Starting the DevWorkspace controller against logical cluster ${CONTEXT}"
+echo "=========================================================================="
 
 if [[ "$(kubectl api-resources --api-group='route.openshift.io'  2>&1 | grep -o routes)" != "" ]]; then
   PLATFORM=openshift

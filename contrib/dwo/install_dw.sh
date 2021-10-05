@@ -25,12 +25,31 @@ else
   PLATFORM=kubernetes
 fi
 
+echo
+echo "= Creating namespace ${DEVWORKSPACE_CONTROLLER_NAMESPACE}"
+echo "===================================================================="
+
 export DEVWORKSPACE_CONTROLLER_NAMESPACE=devworkspace-controller
 kubectl --context=${CONTEXT} create namespace ${DEVWORKSPACE_CONTROLLER_NAMESPACE}
+
+echo
+echo "= Deploying DevWorkspace YAML config files "
+echo "==========================================="
 
 for file in $(ls ${DWO_ROOT}/deploy/deployment/${PLATFORM}/objects/*.yaml | grep -v -E 'Deployment|Certificate|Issuer|devworkspace-controller-metrics'); do
   kubectl --context=${CONTEXT} apply -f $file
 done
+
+echo
+echo "= Patching DevWorkspace YAML config files: "
+echo "=   - routing suffix to ${ROUTING_SUFFIX}"
+echo "=   - CRD conversion strategy to \"None\""
+echo "==========================================="
+
 kubectl --context=${CONTEXT} patch configmap devworkspace-controller-configmap -n ${DEVWORKSPACE_CONTROLLER_NAMESPACE} --patch='{"data":{"devworkspace.routing.cluster_host_suffix":"'${ROUTING_SUFFIX}'"}}'
 kubectl --context=${CONTEXT} patch crds devworkspaces.workspace.devfile.io --patch='{"spec":{"conversion":{"strategy":"None","webhook":null}}}'
 kubectl --context=${CONTEXT} patch crds devworkspacetemplates.workspace.devfile.io --patch='{"spec":{"conversion":{"strategy":"None","webhook":null}}}'
+
+echo
+echo "= DevWorkspace controller installed "
+echo "===================================="

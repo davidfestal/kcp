@@ -1,12 +1,10 @@
-Kubectl / west:
+Kubectl / KCP:
 ---------------
 ../contrib/dwo/create_location.sh west
-
 
 KCP:
 ----
 ../contrib/dwo/start_kcp_and_cluster_controller.sh
-
 
 Kubectl / KCP:
 --------------
@@ -14,51 +12,42 @@ kubectl api-resources
 ../contrib/dwo/add_location.sh west admin
 kubectl get clusters -o wide
 
-
 DW / KCP:
 ---------
 ../contrib/dwo/install_dw.sh kcp-apps.192.168.1.38.sslip.io admin
-../contrib/dwo/start_dw.sh admin./bin/ingress-controller -kubeconfig ${KUBECONFIG} -envoyxds -domain=kcp-apps.192.168.1.38.sslip.io
-
+../contrib/dwo/start_dw.sh admin
 
 KCP Ingress Controller:
 -----------------------
-
 ./bin/ingress-controller -kubeconfig ${KUBECONFIG} -envoyxds -domain=kcp-apps.192.168.1.38.sslip.io
-
 
 Envoy:
 ------
-
 sudo envoy -l debug -c utils/envoy/bootstrap.yaml
-
 
 Kubectl / KCP:
 --------------
 kubectl create namespace test1
-kubectl apply -f ../contrib/dwo/flattened_theia-next.yaml -n test1
-show reconciling ...
-show deployment in UI
+kubectl apply -f ../contrib/dwo/theia-next.yaml -n test1
 
-Kubectl / WEST:
+Kubectl / location:
 ---------------
-kubectl get deployments -n test1
-
+./pkubectl.sh west get deployments -n test1
 
 Kubectl / KCP:
 --------------
-../contrib/dwo/assign_to_location.sh test1 west
+../contrib/dwo/assign_to_location.sh test1 west admin
 
-
-Kubectl / WEST:
+Kubectl / location:
 ---------------
-kubectl get deployments -n test1
-kubectl get pods -n test1
-
+./pkubectl.sh west get deployments -n test1
+./pkubectl.sh west describe pods -n test1
+./pkubectl.sh west get ingresses -n test1
 
 Kubectl / KCP:
 --------------
 kubectl get deployments -n test1
 kubectl get dw -n test1
+kubectl describe pods -n test1
 
 

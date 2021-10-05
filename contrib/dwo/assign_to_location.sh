@@ -9,6 +9,11 @@ NAMESPACE=$1
 CLUSTER_NAME=$2
 CONTEXT=$3
 
+echo
+echo "= Assigning location ${CLUSTER_NAME} to workspace resources:"
+echo "=   deployment, services, configmaps, serviceaccountsn roles, rolebindings"
+echo "=========================================================================="
+
 PATCH='{"metadata":{"labels":{"kcp.dev/cluster":"'${CLUSTER_NAME}'"}}}'
 
 #for name in $(kubectl get ingresses -o name -n ${NAMESPACE}); do

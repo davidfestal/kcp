@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -93,7 +94,20 @@ func (c *Controller) reconcile(ctx context.Context, cluster *clusterv1alpha1.Clu
 
 	if !sets.NewString(cluster.Status.SyncedResources...).Equal(groupResources) {
 		kubeConfig := c.kubeconfig.DeepCopy()
-		if _, exists := kubeConfig.Contexts[logicalCluster]; !exists {
+		noContextInConfig := true
+		if logicalClusterContext, exists := kubeConfig.Contexts[logicalCluster]; exists {
+			if _, exists := kubeConfig.Clusters[logicalClusterContext.Cluster]; exists {
+				noContextInConfig = false
+				server := kubeConfig.Clusters[logicalClusterContext.Cluster].Server
+				if !strings.HasSuffix(server, "clusters/"+logicalCluster) {
+					server = server + "/clusters/_admin_"
+				} else {
+					server = strings.Replace(server, "/clusters/"+logicalCluster, "/clusters/_"+logicalCluster+"_", -1)
+				}
+				kubeConfig.Clusters[logicalClusterContext.Cluster].Server = server
+			}
+		}
+		if noContextInConfig {
 			klog.Errorf("error installing syncer: no context with the name of the expected cluster: %s", logicalCluster)
 			cluster.Status.SetConditionReady(corev1.ConditionFalse,
 				"ErrorInstallingSyncer",
@@ -122,7 +136,7 @@ func (c *Controller) reconcile(ctx context.Context, cluster *clusterv1alpha1.Clu
 				return nil // Don't retry.
 			}
 
-			newSyncer, err := syncer.StartSyncer(upstream, downstream, groupResources, cluster.Name, numSyncerThreads)
+			newSyncer, err := syncer.BuildSyncerToPhysicalLocation(cluster.Name)(upstream, downstream, groupResources, numSyncerThreads)
 			if err != nil {
 				klog.Errorf("error starting syncer in push mode: %v", err)
 				cluster.Status.SetConditionReady(corev1.ConditionFalse,

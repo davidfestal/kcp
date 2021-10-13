@@ -62,7 +62,7 @@ func main() {
 		klog.Fatal(err)
 	}
 
-	syncer, err := syncer.StartSyncer(fromConfig, toConfig, sets.NewString(syncedResourceTypes...), *clusterID, numThreads)
+	syncer, err := syncer.BuildSyncerToPhysicalLocation(*clusterID)(fromConfig, toConfig, sets.NewString(syncedResourceTypes...), numThreads)
 	if err != nil {
 		klog.Fatal(err)
 	}

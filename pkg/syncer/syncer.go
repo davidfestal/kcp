@@ -2,30 +2,34 @@ package syncer
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"strings"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/util/workqueue"
-	"k8s.io/klog"
 
-	"github.com/kcp-dev/kcp/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/api/equality"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/klog"
 )
 
 const resyncPeriod = 10 * time.Hour
 const SyncerNamespaceKey = "SYNCER_NAMESPACE"
+
+type UpsertFunc func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured, labelsToAdd map[string]string) error
+type UpdateStatusFunc func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured) error
+type DeleteFunc func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace, name string) error
+
+type Syncing interface {
+	UpsertIntoDownstream() UpsertFunc
+	DeleteFromDownstream() DeleteFunc
+    UpdateStatusInUpstream() UpdateStatusFunc
+	LabelsToAdd() map[string]string
+}
 
 type Syncer struct {
 	specSyncer   *Controller
@@ -43,12 +47,51 @@ func (s *Syncer) WaitUntilDone() {
 	<-s.statusSyncer.Done()
 }
 
-func StartSyncer(upstream, downstream *rest.Config, resources sets.String, cluster string, numSyncerThreads int) (*Syncer, error) {
-	specSyncer, err := NewSpecSyncer(upstream, downstream, resources.List(), cluster)
+var EnqueueAllButStatusUpdates HandlersProvider = func(c *Controller, gvr schema.GroupVersionResource) cache.ResourceEventHandlerFuncs {
+	return cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) { c.AddToQueue(gvr, obj) },
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			if !deepEqualApartFromStatus(oldObj, newObj) {
+				c.AddToQueue(gvr, newObj)
+			}
+		},
+		DeleteFunc: func(obj interface{}) { c.AddToQueue(gvr, obj) },
+	}
+}
+
+var EnqueueStatusUpdatesOnly HandlersProvider = func(c *Controller, gvr schema.GroupVersionResource) cache.ResourceEventHandlerFuncs {
+	return cache.ResourceEventHandlerFuncs{
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			if !deepEqualStatus(oldObj, newObj) {
+				c.AddToQueue(gvr, newObj)
+			}
+		},
+	}
+}
+
+func StartSyncer(upstream, downstream *rest.Config, fromLabelSelector labels.Selector, syncing Syncing, resources sets.String, numSyncerThreads int) (*Syncer, error) {
+	specSyncer, err := NewSyncerController(
+		upstream, downstream,
+		fromLabelSelector,
+		ensuringNamespaceExists(syncing.UpsertIntoDownstream()), 
+		syncing.DeleteFromDownstream(),
+		syncing.LabelsToAdd(),
+		EnqueueAllButStatusUpdates, 
+		resources.List())
 	if err != nil {
 		return nil, err
 	}
-	statusSyncer, err := NewStatusSyncer(downstream, upstream, resources.List(), cluster)
+
+	statusSyncer, err := NewSyncerController(
+		downstream, upstream,
+		fromLabelSelector, 
+		func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured, labelsToAdd map[string]string) error {
+			return syncing.UpdateStatusInUpstream()(c, ctx, gvr, namespace, unstrob)
+		}, 
+		nil,
+		nil,
+		EnqueueStatusUpdatesOnly, 
+		resources.List())
 	if err != nil {
 		specSyncer.Stop()
 		return nil, err
@@ -63,301 +106,77 @@ func StartSyncer(upstream, downstream *rest.Config, resources sets.String, clust
 	}, nil
 }
 
-type UpsertFunc func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured) error
-type DeleteFunc func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace, name string) error
-type HandlersProvider func(c *Controller, gvr schema.GroupVersionResource) cache.ResourceEventHandlerFuncs
-
-type Controller struct {
-	queue workqueue.RateLimitingInterface
-
-	// Upstream
-	fromDSIF dynamicinformer.DynamicSharedInformerFactory
-
-	// Downstream
-	toClient dynamic.Interface
-
-	stopCh chan struct{}
-
-	upsertFn UpsertFunc
-	deleteFn DeleteFunc
-
-	namespace string
-}
-
-// New returns a new syncer Controller syncing spec from "from" to "to".
-func New(from, to *rest.Config, upsertFn UpsertFunc, deleteFn DeleteFunc, handlers HandlersProvider, syncedResourceTypes []string, clusterID string) (*Controller, error) {
-	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
-	stopCh := make(chan struct{})
-
-	c := Controller{
-		// TODO: should we have separate upstream and downstream sync workqueues?
-		queue: queue,
-
-		toClient: dynamic.NewForConfigOrDie(to),
-
-		stopCh: stopCh,
-
-		upsertFn:  upsertFn,
-		deleteFn:  deleteFn,
-		namespace: os.Getenv(SyncerNamespaceKey),
-	}
-
-	fromClient := dynamic.NewForConfigOrDie(from)
-	fromDSIF := dynamicinformer.NewFilteredDynamicSharedInformerFactory(fromClient, resyncPeriod, metav1.NamespaceAll, func(o *metav1.ListOptions) {
-		o.LabelSelector = fmt.Sprintf("kcp.dev/cluster=%s", clusterID)
-	})
-
-	// Get all types the upstream API server knows about.
-	// TODO: watch this and learn about new types, or forget about old ones.
-	gvrstrs, err := getAllGVRs(from, syncedResourceTypes...)
-	if err != nil {
-		return nil, err
-	}
-	for _, gvrstr := range gvrstrs {
-		gvr, _ := schema.ParseResourceArg(gvrstr)
-
-		if _, err := fromDSIF.ForResource(*gvr).Lister().List(labels.Everything()); err != nil {
-			klog.Infof("Failed to list all %q: %v", gvrstr, err)
-			return nil, errors.NewRetryableError(err)
-		}
-
-		fromDSIF.ForResource(*gvr).Informer().AddEventHandler(handlers(&c, *gvr))
-		klog.Infof("Set up informer for %v", gvr)
-	}
-	fromDSIF.WaitForCacheSync(stopCh)
-	fromDSIF.Start(stopCh)
-	c.fromDSIF = fromDSIF
-
-	return &c, nil
-}
-
-func contains(ss []string, s string) bool {
-	for _, n := range ss {
-		if n == s {
-			return true
-		}
-	}
-	return false
-}
-
-func getAllGVRs(config *rest.Config, resourcesToSync ...string) ([]string, error) {
-	toSyncSet := sets.NewString(resourcesToSync...)
-	willBeSyncedSet := sets.NewString()
-	dc, err := discovery.NewDiscoveryClientForConfig(config)
-	if err != nil {
-		return nil, err
-	}
-	rs, err := dc.ServerPreferredResources()
-	if err != nil {
-		if strings.Contains(err.Error(), "unable to retrieve the complete list of server APIs") {
-			// This error may occur when some API resources added from CRDs are not completely ready.
-			// We should just retry without a limit on the number of retries in such a case.
-			//
-			// In fact this might be related to a bug in the changes made on the feature-logical-cluster
-			// Kubernetes branch to support legacy schema resources added as CRDs.
-			// If this is confirmed, this test will be removed when the CRD bug is fixed.
-			return nil, errors.NewRetryableError(err)
-		} else {
-			return nil, err
-		}
-	}
-	var gvrstrs []string
-	for _, r := range rs {
-		// v1 -> v1.
-		// apps/v1 -> v1.apps
-		// tekton.dev/v1beta1 -> v1beta1.tekton.dev
-		groupVersion, err := schema.ParseGroupVersion(r.GroupVersion)
-		if err != nil {
-			klog.Warningf("Unable to parse GroupVersion %s : %v", r.GroupVersion, err)
-			continue
-		}
-		vr := groupVersion.Version + "." + groupVersion.Group
-		for _, ai := range r.APIResources {
-			var willBeSynced string
-			groupResource := schema.GroupResource{
-				Group:    groupVersion.Group,
-				Resource: ai.Name,
-			}
-
-			if toSyncSet.Has(groupResource.String()) {
-				willBeSynced = groupResource.String()
-			} else if toSyncSet.Has(ai.Name) {
-				willBeSynced = ai.Name
-			} else {
-				// We're not interested in this resource type
-				continue
-			}
-			if strings.Contains(ai.Name, "/") {
-				// foo/status, pods/exec, namespace/finalize, etc.
-				continue
-			}
-			if !ai.Namespaced {
-				// Ignore cluster-scoped things.
-				continue
-			}
-			if !contains(ai.Verbs, "watch") {
-				klog.Infof("resource %s %s is not watchable: %v", vr, ai.Name, ai.Verbs)
-				continue
-			}
-			gvrstrs = append(gvrstrs, fmt.Sprintf("%s.%s", ai.Name, vr))
-			willBeSyncedSet.Insert(willBeSynced)
-		}
-	}
-
-	notFoundResourceTypes := toSyncSet.Difference(willBeSyncedSet)
-	if notFoundResourceTypes.Len() != 0 {
-		// Some of the API resources expected to be there are still not published by KCP.
-		// We should just retry without a limit on the number of retries in such a case,
-		// until the corresponding resources are added inside KCP as CRDs and published as API resources.
-		return nil, errors.NewRetryableError(fmt.Errorf("The following resource types were requested to be synced, but were not found in the KCP logical cluster: %v", notFoundResourceTypes.List()))
-	}
-	return gvrstrs, nil
-}
-
-type holder struct {
-	gvr schema.GroupVersionResource
-	obj interface{}
-}
-
-func (c *Controller) AddToQueue(gvr schema.GroupVersionResource, obj interface{}) {
-	c.queue.AddRateLimited(holder{gvr: gvr, obj: obj})
-}
-
-// Start starts N worker processes processing work items.
-func (c *Controller) Start(numThreads int) {
-	for i := 0; i < numThreads; i++ {
-		go c.startWorker()
-	}
-}
-
-// startWorker processes work items until stopCh is closed.
-func (c *Controller) startWorker() {
-	for {
-		select {
-		case <-c.stopCh:
-			klog.Info("stopping syncer worker")
-			return
-		default:
-			c.processNextWorkItem()
-		}
-	}
-}
-
-// Stop stops the syncer.
-func (c *Controller) Stop() {
-	c.queue.ShutDown()
-	close(c.stopCh)
-}
-
-// Done returns a channel that's closed when the syncer is stopped.
-func (c *Controller) Done() <-chan struct{} { return c.stopCh }
-
-func (c *Controller) processNextWorkItem() bool {
-	// Wait until there is a new item in the working queue
-	i, quit := c.queue.Get()
-	if quit {
+func deepEqualApartFromStatus(oldObj, newObj interface{}) bool {
+	oldUnstrob, isOldObjUnstructured := oldObj.(*unstructured.Unstructured)
+	newUnstrob, isNewObjUnstructured := newObj.(*unstructured.Unstructured)
+	if !isOldObjUnstructured || !isNewObjUnstructured {
 		return false
 	}
-	h := i.(holder)
+	if !equality.Semantic.DeepEqual(oldUnstrob.GetAnnotations(), newUnstrob.GetAnnotations()) {
+		return false
+	}
+	if !equality.Semantic.DeepEqual(oldUnstrob.GetLabels(), newUnstrob.GetLabels()) {
+		return false
+	}
 
-	// No matter what, tell the queue we're done with this key, to unblock
-	// other workers.
-	defer c.queue.Done(i)
-
-	err := c.process(h.gvr, h.obj)
-	c.handleErr(err, i)
+	oldObjKeys := sets.StringKeySet(oldUnstrob.UnstructuredContent())
+	newObjKeys := sets.StringKeySet(newUnstrob.UnstructuredContent())
+	for _, key := range oldObjKeys.Union(newObjKeys).UnsortedList() {
+		if key == "metadata" || key == "status" {
+			continue
+		}
+		if !equality.Semantic.DeepEqual(oldUnstrob.UnstructuredContent()[key], newUnstrob.UnstructuredContent()[key]) {
+			return false
+		}
+	}
 	return true
 }
 
-func (c *Controller) handleErr(err error, i interface{}) {
-	// Reconcile worked, nothing else to do for this workqueue item.
-	if err == nil {
-		c.queue.Forget(i)
-		return
-	}
-
-	// Re-enqueue up to 5 times.
-	num := c.queue.NumRequeues(i)
-	if num < 5 {
-		klog.Errorf("Error reconciling key %q, retrying... (#%d): %v", i, num, err)
-		c.queue.AddRateLimited(i)
-		return
-	}
-
-	// Give up and report error elsewhere.
-	c.queue.Forget(i)
-	utilruntime.HandleError(err)
-	klog.Errorf("Dropping key %q after failed retries: %v", i, err)
-}
-
-func (c *Controller) process(gvr schema.GroupVersionResource, obj interface{}) error {
-	klog.V(2).Infof("Process object of type: %T : %v", obj, obj)
-	meta, isMeta := obj.(metav1.Object)
-	if !isMeta {
-		if tombstone, isTombstone := obj.(cache.DeletedFinalStateUnknown); isTombstone {
-			meta, isMeta = tombstone.Obj.(metav1.Object)
-			if !isMeta {
-				err := fmt.Errorf("Tombstone contained object is expected to be a metav1.Object, but is %T: %#v", obj, obj)
-				klog.Error(err)
-				return err
-			}
-		} else {
-			err := fmt.Errorf("Object to synchronize is expected to be a metav1.Object, but is %T", obj)
+func ensuringNamespaceExists(upsert UpsertFunc) UpsertFunc {
+	return func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured, labelsToAdd map[string]string) error {
+		if upsert == nil {
+			return nil
+		}
+		if err := c.ensureNamespaceExists(namespace); err != nil {
 			klog.Error(err)
 			return err
 		}
-	}
-	namespace, name := meta.GetNamespace(), meta.GetName()
-	if c.inSyncerNamespace(namespace) {
-		klog.V(2).Infof("Skipping object of type: %T : %v in syncer namespace", obj, obj)
-		return nil
-	}
-
-	ctx := context.TODO()
-
-	obj, exists, err := c.fromDSIF.ForResource(gvr).Informer().GetIndexer().Get(obj)
-	if err != nil {
-		klog.Error(err)
-		return err
-	}
-
-	if !exists {
-		klog.Infof("Object with gvr=%q was deleted : %s/%s", gvr, namespace, name)
-		return c.deleteFn(c, ctx, gvr, namespace, name)
-	}
-
-	unstrob, isUnstructured := obj.(*unstructured.Unstructured)
-	if !isUnstructured {
-		err := fmt.Errorf("Object to synchronize is expected to be Unstructured, but is %T", obj)
-		klog.Error(err)
-		return err
-	}
-
-	if c.upsertFn != nil {
-		return c.upsertFn(c, ctx, gvr, namespace, unstrob)
-	}
-
-	return err
+		return upsert(c, ctx, gvr, namespace, unstrob, labelsToAdd)
+	} 
 }
 
-// getClient gets a dynamic client for the GVR, scoped to namespace if the namespace is not "".
-func (c *Controller) getClient(gvr schema.GroupVersionResource, namespace string) dynamic.ResourceInterface {
-	nri := c.toClient.Resource(gvr)
-	if namespace != "" {
-		return nri.Namespace(namespace)
+// TODO:
+// This function is there as a quick and dirty implementation of namespace creation.
+// In fact We should also be getting notifications about namespaces created upstream and be creating downstream equivalents.
+func (c *Controller) ensureNamespaceExists(namespace string) error {
+	namespaces := c.toClient.Resource(schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "namespaces",
+	})
+	newNamespace := &unstructured.Unstructured{}
+	newNamespace.SetAPIVersion("v1")
+	newNamespace.SetKind("Namespace")
+	newNamespace.SetName(namespace)
+	if _, err := namespaces.Create(context.TODO(), newNamespace, metav1.CreateOptions{}); err != nil {
+		if !k8serrors.IsAlreadyExists(err) {
+			klog.Infof("Error while creating namespace %s: %v", namespace, err)
+			return err
+		}
 	}
-	return nri
+	return nil
 }
 
-func (c *Controller) inSyncerNamespace(objectNamespace string) bool {
-	// If there is no value for the syncer namespace then always process the object
-	// This will also handle the cluster scoped objects case for
-	// objectNamespace when this is not set
-	if c.namespace == "" {
+func deepEqualStatus(oldObj, newObj interface{}) bool {
+	oldUnstrob, isOldObjUnstructured := oldObj.(*unstructured.Unstructured)
+	newUnstrob, isNewObjUnstructured := newObj.(*unstructured.Unstructured)
+	if !isOldObjUnstructured || !isNewObjUnstructured || oldObj == nil || newObj == nil {
 		return false
 	}
-	if c.namespace == objectNamespace {
-		return true
+
+	if newStatus, statusExists := newUnstrob.UnstructuredContent()["status"]; statusExists {
+		oldStatus := oldUnstrob.UnstructuredContent()["status"]
+		return equality.Semantic.DeepEqual(oldStatus, newStatus)
 	}
 	return false
 }

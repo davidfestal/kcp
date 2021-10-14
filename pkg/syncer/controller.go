@@ -309,6 +309,10 @@ func (c *Controller) GetClient(gvr schema.GroupVersionResource, namespace string
 	return nri
 }
 
+func (c *Controller) GetFromLister(gvr schema.GroupVersionResource, namespace string) cache.GenericLister {
+	return c.fromDSIF.ForResource(gvr).Lister()
+}
+
 func (c *Controller) inSyncerNamespace(objectNamespace string) bool {
 	// If there is no value for the syncer namespace then always process the object
 	// This will also handle the cluster scoped objects case for

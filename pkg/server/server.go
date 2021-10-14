@@ -36,6 +36,7 @@ import (
 	"github.com/kcp-dev/kcp/pkg/etcd"
 	"github.com/kcp-dev/kcp/pkg/reconciler/apiresource"
 	"github.com/kcp-dev/kcp/pkg/reconciler/cluster"
+	"github.com/kcp-dev/kcp/pkg/reconciler/transformer"
 )
 
 const resyncPeriod = 10 * time.Hour
@@ -228,6 +229,15 @@ func (s *Server) Run(ctx context.Context) error {
 				}
 
 				clientutils.EnableMultiCluster(adminConfig, nil, "clusters", "customresourcedefinitions", "apiresourceimports", "negotiatedapiresources")
+				defaultTransformer, err := transformer.NewController(
+					adminConfig,
+					*kubeconfig,
+				)
+				if err != nil {
+					return err
+				}
+				defaultTransformer.Start()
+
 				clusterController, err := cluster.NewController(
 					adminConfig,
 					s.cfg.SyncerImage,

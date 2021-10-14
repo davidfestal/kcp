@@ -236,9 +236,9 @@ func (c *Controller) handleErr(err error, i interface{}) {
 		return
 	}
 
-	// Re-enqueue up to 5 times.
+	// Re-enqueue up to 10 times.
 	num := c.queue.NumRequeues(i)
-	if num < 5 {
+	if num < 10 {
 		klog.Errorf("Error reconciling key %q, retrying... (#%d): %v", i, num, err)
 		c.queue.AddRateLimited(i)
 		return
@@ -281,7 +281,7 @@ func (c *Controller) process(gvr schema.GroupVersionResource, obj interface{}) e
 		return err
 	}
 
-	if !exists {
+	if !exists && c.deleteFn != nil {
 		klog.Infof("Object with gvr=%q was deleted : %s/%s", gvr, namespace, name)
 		return c.deleteFn(c, ctx, gvr, namespace, name)
 	}

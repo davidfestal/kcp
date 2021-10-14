@@ -45,7 +45,7 @@ func (ds delegatedSyncing) DeleteFromDownstream() DeleteFunc {
 	}
 }
 func (ds delegatedSyncing) UpdateStatusInUpstream() UpdateStatusFunc {
-	return func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured) error {		
+	return func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured) (notFound bool, err error) {		
 		return ds.pickSyncing(gvr).UpdateStatusInUpstream()(c, ctx, gvr, namespace, unstrob)
 	}
 }

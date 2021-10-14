@@ -65,7 +65,7 @@ func upsertIntoDownstream(c *Controller, ctx context.Context, gvr schema.GroupVe
 	return nil
 }
 
-func updateStatusInUpstream(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured) error {
+func updateStatusInUpstream(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured) (bool, error) {
 	client := c.getClient(gvr, namespace)
 
 	unstrob = unstrob.DeepCopy()
@@ -76,17 +76,20 @@ func updateStatusInUpstream(c *Controller, ctx context.Context, gvr schema.Group
 
 	existing, err := client.Get(ctx, unstrob.GetName(), metav1.GetOptions{})
 	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return true, nil
+		}
 		klog.Errorf("Getting resource %s/%s: %v", namespace, unstrob.GetName(), err)
-		return err
+		return false, err
 	}
 
 	unstrob.SetResourceVersion(existing.GetResourceVersion())
 	if _, err := client.UpdateStatus(ctx, unstrob, metav1.UpdateOptions{}); err != nil {
 		klog.Errorf("Updating status of resource %s/%s: %v", namespace, unstrob.GetName(), err)
-		return err
+		return false, err
 	}
 
-	return nil
+	return false, nil
 }
 
 type identitySyncing struct {

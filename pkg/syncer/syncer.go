@@ -21,7 +21,7 @@ const resyncPeriod = 10 * time.Hour
 const SyncerNamespaceKey = "SYNCER_NAMESPACE"
 
 type UpsertFunc func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured, labelsToAdd map[string]string) error
-type UpdateStatusFunc func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured) error
+type UpdateStatusFunc func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured) (notFound bool, err error)
 type DeleteFunc func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace, name string) error
 
 type Syncing interface {
@@ -49,18 +49,25 @@ func (s *Syncer) WaitUntilDone() {
 
 var EnqueueAllButStatusUpdates HandlersProvider = func(c *Controller, gvr schema.GroupVersionResource) cache.ResourceEventHandlerFuncs {
 	return cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) { c.AddToQueue(gvr, obj) },
+		AddFunc: func(obj interface{}) {
+			c.AddToQueue(gvr, obj)
+		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			if !deepEqualApartFromStatus(oldObj, newObj) {
 				c.AddToQueue(gvr, newObj)
 			}
 		},
-		DeleteFunc: func(obj interface{}) { c.AddToQueue(gvr, obj) },
+		DeleteFunc: func(obj interface{}) {
+			c.AddToQueue(gvr, obj)
+		},
 	}
 }
 
 var EnqueueStatusUpdatesOnly HandlersProvider = func(c *Controller, gvr schema.GroupVersionResource) cache.ResourceEventHandlerFuncs {
 	return cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			c.AddToQueue(gvr, obj)
+		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			if !deepEqualStatus(oldObj, newObj) {
 				c.AddToQueue(gvr, newObj)
@@ -86,7 +93,24 @@ func StartSyncer(upstream, downstream *rest.Config, fromLabelSelector labels.Sel
 		downstream, upstream,
 		fromLabelSelector, 
 		func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured, labelsToAdd map[string]string) error {
-			return syncing.UpdateStatusInUpstream()(c, ctx, gvr, namespace, unstrob)
+			notFound, err := syncing.UpdateStatusInUpstream()(c, ctx, gvr, namespace, unstrob)
+			if err != nil {
+				return err
+			}
+			if notFound {
+				specSyncer.AddToQueue(gvr, &metav1.PartialObjectMetadata{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: unstrob.GetAPIVersion(),
+						Kind: unstrob.GetKind(),
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: unstrob.GetName(),
+						Namespace: unstrob.GetNamespace(),
+						ClusterName: unstrob.GetClusterName(),
+					},
+				})
+			}
+			return nil
 		}, 
 		nil,
 		nil,

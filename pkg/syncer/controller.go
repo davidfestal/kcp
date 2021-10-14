@@ -300,8 +300,8 @@ func (c *Controller) process(gvr schema.GroupVersionResource, obj interface{}) e
 	return err
 }
 
-// getClient gets a dynamic client for the GVR, scoped to namespace if the namespace is not "".
-func (c *Controller) getClient(gvr schema.GroupVersionResource, namespace string) dynamic.ResourceInterface {
+// GetClient gets a dynamic client for the GVR, scoped to namespace if the namespace is not "".
+func (c *Controller) GetClient(gvr schema.GroupVersionResource, namespace string) dynamic.ResourceInterface {
 	nri := c.toClient.Resource(gvr)
 	if namespace != "" {
 		return nri.Namespace(namespace)

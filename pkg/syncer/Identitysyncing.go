@@ -14,11 +14,11 @@ func deleteFromDownstream(c *Controller, ctx context.Context, gvr schema.GroupVe
 	// TODO: get UID of just-deleted object and pass it as a precondition on this delete.
 	// This would avoid races where an object is deleted and another object with the same name is created immediately after.
 
-	return c.getClient(gvr, namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	return c.GetClient(gvr, namespace).Delete(ctx, name, metav1.DeleteOptions{})
 }
 
 func upsertIntoDownstream(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured, labelsToAdd map[string]string) error {
-	client := c.getClient(gvr, namespace)
+	client := c.GetClient(gvr, namespace)
 
 	unstrob = unstrob.DeepCopy()
 
@@ -66,7 +66,7 @@ func upsertIntoDownstream(c *Controller, ctx context.Context, gvr schema.GroupVe
 }
 
 func updateStatusInUpstream(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured) (bool, error) {
-	client := c.getClient(gvr, namespace)
+	client := c.GetClient(gvr, namespace)
 
 	unstrob = unstrob.DeepCopy()
 

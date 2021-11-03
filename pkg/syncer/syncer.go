@@ -4,15 +4,14 @@ import (
 	"context"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/equality"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/rest"
-
-	"k8s.io/apimachinery/pkg/api/equality"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog"
 )
@@ -27,7 +26,7 @@ type DeleteFunc func(c *Controller, ctx context.Context, gvr schema.GroupVersion
 type Syncing interface {
 	UpsertIntoDownstream() UpsertFunc
 	DeleteFromDownstream() DeleteFunc
-    UpdateStatusInUpstream() UpdateStatusFunc
+	UpdateStatusInUpstream() UpdateStatusFunc
 	LabelsToAdd() map[string]string
 }
 
@@ -80,10 +79,10 @@ func StartSyncer(upstream, downstream *rest.Config, fromLabelSelector labels.Sel
 	specSyncer, err := NewSyncerController(
 		upstream, downstream,
 		fromLabelSelector,
-		ensuringNamespaceExists(syncing.UpsertIntoDownstream()), 
+		ensuringNamespaceExists(syncing.UpsertIntoDownstream()),
 		syncing.DeleteFromDownstream(),
 		syncing.LabelsToAdd(),
-		EnqueueAllButStatusUpdates, 
+		EnqueueAllButStatusUpdates,
 		resources.List())
 	if err != nil {
 		return nil, err
@@ -91,7 +90,7 @@ func StartSyncer(upstream, downstream *rest.Config, fromLabelSelector labels.Sel
 
 	statusSyncer, err := NewSyncerController(
 		downstream, upstream,
-		fromLabelSelector, 
+		fromLabelSelector,
 		func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured, labelsToAdd map[string]string) error {
 			notFound, err := syncing.UpdateStatusInUpstream()(c, ctx, gvr, namespace, unstrob)
 			if err != nil {
@@ -101,20 +100,20 @@ func StartSyncer(upstream, downstream *rest.Config, fromLabelSelector labels.Sel
 				specSyncer.AddToQueue(gvr, &metav1.PartialObjectMetadata{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: unstrob.GetAPIVersion(),
-						Kind: unstrob.GetKind(),
+						Kind:       unstrob.GetKind(),
 					},
 					ObjectMeta: metav1.ObjectMeta{
-						Name: unstrob.GetName(),
-						Namespace: unstrob.GetNamespace(),
+						Name:        unstrob.GetName(),
+						Namespace:   unstrob.GetNamespace(),
 						ClusterName: unstrob.GetClusterName(),
 					},
 				})
 			}
 			return nil
-		}, 
+		},
 		nil,
 		nil,
-		EnqueueStatusUpdatesOnly, 
+		EnqueueStatusUpdatesOnly,
 		resources.List())
 	if err != nil {
 		specSyncer.Stop()
@@ -166,7 +165,7 @@ func ensuringNamespaceExists(upsert UpsertFunc) UpsertFunc {
 			return err
 		}
 		return upsert(c, ctx, gvr, namespace, unstrob, labelsToAdd)
-	} 
+	}
 }
 
 // TODO:

@@ -13,13 +13,13 @@ type DelegateSyncing interface {
 }
 
 type delegatedSyncing struct {
-	delegates map[schema.GroupVersionResource]Syncing
+	delegates      map[schema.GroupVersionResource]Syncing
 	defaultSyncing Syncing
 }
 
 func NewDelegateSyncing(defaultSyncing Syncing) DelegateSyncing {
 	return delegatedSyncing{
-		delegates: make(map[schema.GroupVersionResource]Syncing),
+		delegates:      make(map[schema.GroupVersionResource]Syncing),
 		defaultSyncing: defaultSyncing,
 	}
 }
@@ -34,7 +34,7 @@ func (ds delegatedSyncing) pickSyncing(gvr schema.GroupVersionResource) Syncing 
 }
 
 func (ds delegatedSyncing) UpsertIntoDownstream() UpsertFunc {
-	return func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured, labelsToAdd map[string]string) error {		
+	return func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured, labelsToAdd map[string]string) error {
 		fn := ds.pickSyncing(gvr).UpsertIntoDownstream()
 		if fn == nil {
 			ds.defaultSyncing.UpsertIntoDownstream()
@@ -44,7 +44,7 @@ func (ds delegatedSyncing) UpsertIntoDownstream() UpsertFunc {
 }
 
 func (ds delegatedSyncing) DeleteFromDownstream() DeleteFunc {
-	return func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace, name string) error {		
+	return func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace, name string) error {
 		fn := ds.pickSyncing(gvr).DeleteFromDownstream()
 		if fn == nil {
 			ds.defaultSyncing.DeleteFromDownstream()
@@ -53,7 +53,7 @@ func (ds delegatedSyncing) DeleteFromDownstream() DeleteFunc {
 	}
 }
 func (ds delegatedSyncing) UpdateStatusInUpstream() UpdateStatusFunc {
-	return func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured) (notFound bool, err error) {		
+	return func(c *Controller, ctx context.Context, gvr schema.GroupVersionResource, namespace string, unstrob *unstructured.Unstructured) (notFound bool, err error) {
 		fn := ds.pickSyncing(gvr).UpdateStatusInUpstream()
 		if fn == nil {
 			ds.defaultSyncing.UpdateStatusInUpstream()
@@ -67,4 +67,3 @@ func (ds delegatedSyncing) LabelsToAdd() map[string]string {
 func (ds delegatedSyncing) Delegate(gvr schema.GroupVersionResource, delegateTo Syncing) {
 	ds.delegates[gvr] = delegateTo
 }
-

@@ -36,8 +36,8 @@ type Controller struct {
 
 	stopCh chan struct{}
 
-	upsertFn UpsertFunc
-	deleteFn DeleteFunc
+	upsertFn    UpsertFunc
+	deleteFn    DeleteFunc
 	labelsToAdd map[string]string
 
 	namespace string
@@ -56,10 +56,10 @@ func NewSyncerController(from, to *rest.Config, fromLabelSelector labels.Selecto
 
 		stopCh: stopCh,
 
-		upsertFn:  upsertFn,
-		deleteFn:  deleteFn,
+		upsertFn:    upsertFn,
+		deleteFn:    deleteFn,
 		labelsToAdd: labelsToAdd,
-		namespace: os.Getenv(SyncerNamespaceKey),
+		namespace:   os.Getenv(SyncerNamespaceKey),
 	}
 
 	fromClient := dynamic.NewForConfigOrDie(from)

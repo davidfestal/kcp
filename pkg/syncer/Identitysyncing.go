@@ -95,13 +95,14 @@ func updateStatusInUpstream(c *Controller, ctx context.Context, gvr schema.Group
 type identitySyncing struct {
 	labelsToAdd map[string]string
 }
+
 var _ Syncing = identitySyncing{}
 
 func NewIdentitySyncing(labelsToAdd map[string]string) Syncing {
 	if labelsToAdd == nil {
 		labelsToAdd = make(map[string]string)
 	}
-	return identitySyncing {
+	return identitySyncing{
 		labelsToAdd: labelsToAdd,
 	}
 }

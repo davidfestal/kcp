@@ -6,30 +6,28 @@ import (
 	"fmt"
 	"strings"
 
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
-	"k8s.io/apimachinery/pkg/labels"
 
 	"github.com/kcp-dev/kcp/pkg/syncer"
-	appsv1 "k8s.io/api/apps/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
-	numThreads = 2
+	numThreads   = 2
 	clusterLabel = "kcp.dev/cluster"
 	ownedByLabel = "kcp.dev/owned-by"
 )
 
 var kubeconfig = flag.String("kubeconfig", "", "Path to kubeconfig")
 var kubecontext = flag.String("context", "", "Context to use in the Kubeconfig file, instead of the current context")
-
-
 
 func main() {
 	flag.Parse()
@@ -38,7 +36,6 @@ func main() {
 	if *kubecontext != "" {
 		overrides.CurrentContext = *kubecontext
 	}
-
 
 	kubeConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		&clientcmd.ClientConfigLoadingRules{ExplicitPath: *kubeconfig},
@@ -76,7 +73,7 @@ func main() {
 	if err != nil {
 		klog.Fatalf("error installing transformer: %v", err)
 	}
-	
+
 	splitterSyncing := syncer.NewDelegateSyncing(syncer.NewIdentitySyncing(nil))
 	splitterSyncing.Delegate(appsv1.SchemeGroupVersion.WithResource("deployments"), deploymentSplitterSyncing{})
 
@@ -96,6 +93,7 @@ func main() {
 
 type deploymentSplitterSyncing struct {
 }
+
 var _ syncer.Syncing = deploymentSplitterSyncing{}
 
 func (deploymentSplitterSyncing) UpsertIntoDownstream() syncer.UpsertFunc {
@@ -105,14 +103,14 @@ func (deploymentSplitterSyncing) UpsertIntoDownstream() syncer.UpsertFunc {
 		if err != nil {
 			return err
 		}
-		
+
 		toClient := c.GetClient(gvr, deployment.GetNamespace())
-		
+
 		assignedLocationsAnnot, exists := deployment.GetAnnotations()["kcp.dev/assigned-locations"]
 		if !exists {
 			return nil
 		}
-		var assignedLocations []string		
+		var assignedLocations []string
 		for _, location := range strings.Split(assignedLocationsAnnot, ",") {
 			location = strings.TrimSpace(location)
 			if location != "" {
@@ -142,13 +140,13 @@ func (deploymentSplitterSyncing) UpsertIntoDownstream() syncer.UpsertFunc {
 
 			vd.SetResourceVersion("")
 			vd.SetUID("")
-			vdUnstr := unstructured.Unstructured {}
+			vdUnstr := unstructured.Unstructured{}
 			unstrContent, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&vd)
 			if err != nil {
 				return err
 			}
 			vdUnstr.SetUnstructuredContent(unstrContent)
-	
+
 			if _, err := toClient.Create(ctx, &vdUnstr, metav1.CreateOptions{}); err != nil {
 				if !errors.IsAlreadyExists(err) {
 					return err
@@ -180,7 +178,7 @@ func (deploymentSplitterSyncing) DeleteFromDownstream() syncer.DeleteFunc {
 		}
 		if err := toClient.DeleteCollection(ctx, metav1.DeleteOptions{}, metav1.ListOptions{
 			LabelSelector: sel.String(),
-		});  err != nil {
+		}); err != nil {
 			return err
 		}
 		return nil
@@ -194,7 +192,7 @@ func (deploymentSplitterSyncing) UpdateStatusInUpstream() syncer.UpdateStatusFun
 		if err != nil {
 			return false, err
 		}
-		
+
 		toClient := c.GetClient(gvr, deployment.GetNamespace())
 
 		rootDeploymentName := deployment.Labels[ownedByLabel]
@@ -223,7 +221,6 @@ func (deploymentSplitterSyncing) UpdateStatusInUpstream() syncer.UpdateStatusFun
 		}
 
 		// Aggregate .status from all leafs.
-
 
 		rootDeployment.Status.Replicas = 0
 		rootDeployment.Status.UpdatedReplicas = 0

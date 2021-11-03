@@ -24,10 +24,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog"
 
-	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	apiresourcev1alpha1 "github.com/kcp-dev/kcp/pkg/apis/apiresource/v1alpha1"
 	kcpclient "github.com/kcp-dev/kcp/pkg/client/clientset/versioned"
 	typedapiresource "github.com/kcp-dev/kcp/pkg/client/clientset/versioned/typed/apiresource/v1alpha1"
@@ -46,11 +46,11 @@ func NewController(cfg *rest.Config, kubeconfig clientcmdapi.Config) (*Controlle
 	stopCh := make(chan struct{}) // TODO: hook this up to SIGTERM/SIGINT
 
 	c := &Controller{
-		queue:                            queue,
-		apiresourceClient:                apiresourceClient,
-		stopCh:                           stopCh,
-		kubeconfig:                       kubeconfig,
-		syncers: make(map[string]*syncer.Syncer),		
+		queue:             queue,
+		apiresourceClient: apiresourceClient,
+		stopCh:            stopCh,
+		kubeconfig:        kubeconfig,
+		syncers:           make(map[string]*syncer.Syncer),
 	}
 
 	apiresourceSif := kcpexternalversions.NewSharedInformerFactoryWithOptions(kcpclient.NewForConfigOrDie(cfg), resyncPeriod)
@@ -63,13 +63,13 @@ func NewController(cfg *rest.Config, kubeconfig clientcmdapi.Config) (*Controlle
 	if err := c.negotiatedApiResourceIndexer.AddIndexers(map[string]cache.IndexFunc{
 		clusterNameIndex: func(obj interface{}) ([]string, error) {
 			if negotiatedApiResource, ok := obj.(*apiresourcev1alpha1.NegotiatedAPIResource); ok {
-				return []string{ negotiatedApiResource.ClusterName }, nil
+				return []string{negotiatedApiResource.ClusterName}, nil
 			}
 			return []string{}, nil
 		},
 	}); err != nil {
 		return nil, fmt.Errorf("failed to add indexer for NegotiatedAPIResource: %v", err)
-	}	
+	}
 	c.negotiatedApiResourceLister = apiresourceSif.Apiresource().V1alpha1().NegotiatedAPIResources().Lister()
 
 	apiresourceSif.WaitForCacheSync(stopCh)
@@ -85,10 +85,10 @@ type Controller struct {
 	negotiatedApiResourceIndexer cache.Indexer
 	negotiatedApiResourceLister  apiresourcelister.NegotiatedAPIResourceLister
 
-	kubeconfig                   clientcmdapi.Config
-	syncers                      map[string]*syncer.Syncer
+	kubeconfig clientcmdapi.Config
+	syncers    map[string]*syncer.Syncer
 
-	stopCh                           chan struct{}
+	stopCh chan struct{}
 }
 
 func (c *Controller) enqueue(obj interface{}) {

@@ -20,10 +20,10 @@ import (
 	"fmt"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	apiresourcev1alpha1 "github.com/kcp-dev/kcp/pkg/apis/apiresource/v1alpha1"
 	"github.com/kcp-dev/kcp/pkg/syncer"
@@ -40,14 +40,14 @@ func (c *Controller) process(clusterName string) error {
 		syncerResources = sets.NewString()
 	} else {
 		syncerResources = logicalClusterSyncer.Resources
-	} 
+	}
 
 	logicalClusterResources := sets.NewString()
 	objects, err := c.negotiatedApiResourceIndexer.ByIndex(clusterNameIndex, clusterName)
 	if err != nil {
 		return err
 	}
-	for _,obj := range objects {
+	for _, obj := range objects {
 		nar, isNAR := obj.(*apiresourcev1alpha1.NegotiatedAPIResource)
 		if !isNAR {
 			continue
@@ -55,8 +55,8 @@ func (c *Controller) process(clusterName string) error {
 		if !nar.IsConditionTrue(apiresourcev1alpha1.Published) {
 			continue
 		}
-		logicalClusterResources.Insert(schema.GroupResource {
-			Group: nar.Spec.GroupVersion.Group,
+		logicalClusterResources.Insert(schema.GroupResource{
+			Group:    nar.Spec.GroupVersion.Group,
 			Resource: nar.Spec.Plural,
 		}.String())
 	}
@@ -84,19 +84,19 @@ func (c *Controller) process(clusterName string) error {
 				return err
 			}
 			kubeConfig.CurrentContext = clusterName
-	
+
 			upstream, err := clientcmd.NewNonInteractiveClientConfig(*kubeConfig, clusterName, &clientcmd.ConfigOverrides{}, nil).ClientConfig()
 			if err != nil {
 				klog.Errorf("error installing transformer: %v", err)
 				return err
 			}
-	
+
 			downstream, err := clientcmd.NewNonInteractiveClientConfig(*kubeConfigForPrivateLogicalCluster, clusterName, &clientcmd.ConfigOverrides{}, nil).ClientConfig()
 			if err != nil {
 				klog.Errorf("error installing transformer: %v", err)
 				return err
 			}
-	
+
 			syncer, err := syncer.BuildDefaultSyncerToPrivateLogicalCluster()
 			if err != nil {
 				klog.Errorf("error building transformer syncer: %v", err)
@@ -107,11 +107,11 @@ func (c *Controller) process(clusterName string) error {
 				klog.Errorf("error starting transformer syncer: %v", err)
 				return err
 			}
-	
+
 			c.syncers[clusterName] = newSyncer
 		} else {
 			delete(c.syncers, clusterName)
-		} 
+		}
 
 		if logicalClusterSyncer != nil {
 			logicalClusterSyncer.Stop()
@@ -120,4 +120,3 @@ func (c *Controller) process(clusterName string) error {
 
 	return nil
 }
-

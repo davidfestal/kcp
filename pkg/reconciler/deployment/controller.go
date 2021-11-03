@@ -7,6 +7,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
@@ -46,7 +47,9 @@ func NewController(cfg *rest.Config) *Controller {
 	csif.WaitForCacheSync(stopCh)
 	csif.Start(stopCh)
 
-	sif := informers.NewSharedInformerFactoryWithOptions(kubeClient, resyncPeriod)
+	sif := informers.NewFilteredSharedInformerFactory(kubeClient, resyncPeriod, metav1.NamespaceAll, func(o *metav1.ListOptions) {
+		o.LabelSelector = labels.SelectorFromSet(map[string]string{"kcp.dev/scheduler": "deployment-splitter"}).String()
+	})
 	sif.Apps().V1().Deployments().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { c.enqueue(obj) },
 		UpdateFunc: func(_, obj interface{}) { c.enqueue(obj) },
@@ -71,10 +74,14 @@ type Controller struct {
 }
 
 func (c *Controller) enqueue(obj interface{}) {
-	key, err := cache.MetaNamespaceKeyFunc(obj)
-	if err != nil {
-		runtime.HandleError(err)
-		return
+	var key string
+	if obj != nil {
+		var err error
+		key, err = cache.MetaNamespaceKeyFunc(obj)
+		if err != nil {
+			runtime.HandleError(err)
+			return
+		}
 	}
 	c.queue.AddRateLimited(key)
 }
@@ -133,28 +140,40 @@ func (c *Controller) handleErr(err error, key string) {
 }
 
 func (c *Controller) process(key string) error {
-	obj, exists, err := c.indexer.GetByKey(key)
-	if err != nil {
-		return err
+	var deployments []*appsv1.Deployment
+	if key == "" {
+		var err error
+		deployments, err = c.lister.List(labels.Everything())
+		if err != nil {
+			return err
+		}
+	} else {
+		obj, exists, err := c.indexer.GetByKey(key)
+		if err != nil {
+			return err
+		}
+
+		if !exists {
+			klog.Infof("Object with key %q was deleted", key)
+			return nil
+		}
+		deployments = append(deployments, obj.(*appsv1.Deployment))
 	}
 
-	if !exists {
-		klog.Infof("Object with key %q was deleted", key)
-		return nil
-	}
-	current := obj.(*appsv1.Deployment)
-	previous := current.DeepCopy()
+	for _, current := range deployments {
+		previous := current.DeepCopy()
 
-	ctx := context.TODO()
-	if err := c.reconcile(ctx, current); err != nil {
-		return err
-	}
+		ctx := context.TODO()
+		if err := c.reconcile(ctx, current); err != nil {
+			return err
+		}
 
-	// If the object being reconciled changed as a result, update it.
-	if !equality.Semantic.DeepEqual(previous, current) {
-		_, uerr := c.client.Deployments(current.Namespace).Update(ctx, current, metav1.UpdateOptions{})
-		return uerr
+		// If the object being reconciled changed as a result, update it.
+		if !equality.Semantic.DeepEqual(previous, current) {
+			_, uerr := c.client.Deployments(current.Namespace).Update(ctx, current, metav1.UpdateOptions{})
+			return uerr
+		}
 	}
 
-	return err
+	return nil
 }

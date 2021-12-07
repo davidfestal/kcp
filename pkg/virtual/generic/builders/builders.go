@@ -17,8 +17,7 @@ import (
 	"context"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	restStorage "k8s.io/apiserver/pkg/registry/rest"
-	genericapiserver "k8s.io/apiserver/pkg/server"
+	reststorage "k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	rbacregistryvalidation "k8s.io/kubernetes/pkg/registry/rbac/validation"
@@ -26,18 +25,8 @@ import (
 
 	kcpclient "github.com/kcp-dev/kcp/pkg/client/clientset/versioned"
 	kcpinformer "github.com/kcp-dev/kcp/pkg/client/informers/externalversions"
+	"github.com/kcp-dev/kcp/pkg/virtual/generic/apiserver"
 )
-
-type MainConfigProvider interface {
-	CompletedConfig() genericapiserver.CompletedConfig
-	SharedExtraConfig() SharedExtraConfig
-}
-
-type APIGroupConfigProvider interface {
-	CompletedConfig() genericapiserver.CompletedConfig
-	SharedExtraConfig() SharedExtraConfig
-	AdditionalConfig() interface{}
-}
 
 type SharedExtraConfig struct {
 	KubeAPIServerClientConfig *rest.Config
@@ -48,20 +37,17 @@ type SharedExtraConfig struct {
 	RESTMapper                *restmapper.DeferredDiscoveryRESTMapper
 }
 
-type RestStorageBuidler func(apiGroupConfig APIGroupConfigProvider) (restStorage.Storage, error)
-
-type APIGroupAPIServerBuilder struct {
-	GroupVersion                schema.GroupVersion
-	AdditionalExtraConfigGetter func(mainConfig MainConfigProvider) interface{}
-	StorageBuilders             map[string]RestStorageBuidler
+type GroupVersionStorage struct {
+	GroupVersion    schema.GroupVersion
+	ResourceStorage map[string]reststorage.Storage
 }
 
 type RootPathResolverFunc func(urlPath string, context context.Context) (accepted bool, prefixToStrip string, completedContext context.Context)
 
 type VirtualWorkspaceBuilder struct {
-	Name                   string
-	GroupAPIServerBuilders []APIGroupAPIServerBuilder
-	RootPathresolver       RootPathResolverFunc
+	Name             string
+	GroupsVersions   func(config apiserver.CompletedConfig) []GroupVersionStorage
+	RootPathResolver RootPathResolverFunc
 }
 
 type VirtualWorkspaceBuilderProvider interface {

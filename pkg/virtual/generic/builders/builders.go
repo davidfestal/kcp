@@ -19,16 +19,18 @@ package builders
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	restStorage "k8s.io/apiserver/pkg/registry/rest"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 )
 
-type RestStorageBuidler func(apiGroupAPIServerConfig genericapiserver.CompletedConfig) (restStorage.Storage, error)
+type RestStorageBuilder func(apiGroupAPIServerConfig genericapiserver.CompletedConfig) (restStorage.Storage, error)
 
 type APIGroupAPIServerBuilder struct {
 	GroupVersion schema.GroupVersion
-	Initialize   func(genericapiserver.CompletedConfig) (map[string]RestStorageBuidler, error)
+	AddToScheme  func(*runtime.Scheme) error
+	Initialize   func(genericapiserver.CompletedConfig) (map[string]RestStorageBuilder, error)
 }
 
 type RootPathResolverFunc func(urlPath string, context context.Context) (accepted bool, prefixToStrip string, completedContext context.Context)

@@ -18,7 +18,6 @@ package apiserver
 
 import (
 	"net/http"
-	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -36,15 +35,8 @@ const VirtualNamespaceNameKey virtualNamespaceNameKeyType = "VirtualWorkspaceNam
 
 type ExtraConfig struct {
 	GroupVersion    schema.GroupVersion
-	StorageBuilders map[string]builders.RestStorageBuidler
-
-	// TODO these should all become local eventually
-	Scheme *runtime.Scheme
-	Codecs serializer.CodecFactory
-
-	makeStorage sync.Once
-	storage     map[string]rest.Storage
-	storageErr  error
+	AddToScheme     func(*runtime.Scheme) error
+	StorageBuilders map[string]builders.RestStorageBuilder
 }
 
 type GroupAPIServerConfig struct {
@@ -102,29 +94,12 @@ func (c completedConfig) New(virtualWorkspaceName string, delegationTarget gener
 		GenericAPIServer: genericServer,
 	}
 
-	storage, err := c.RESTStorage()
-	if err != nil {
+	scheme := runtime.NewScheme()
+	codecs := serializer.NewCodecFactory(scheme)
+	if err := c.ExtraConfig.AddToScheme(scheme); err != nil {
 		return nil, err
 	}
 
-	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(c.ExtraConfig.GroupVersion.Group, c.ExtraConfig.Scheme, metav1.ParameterCodec, c.ExtraConfig.Codecs)
-	apiGroupInfo.VersionedResourcesStorageMap[c.ExtraConfig.GroupVersion.Version] = storage
-	if err := s.GenericAPIServer.InstallAPIGroup(&apiGroupInfo); err != nil {
-		return nil, err
-	}
-
-	return s, nil
-}
-
-func (c *completedConfig) RESTStorage() (map[string]rest.Storage, error) {
-	c.ExtraConfig.makeStorage.Do(func() {
-		c.ExtraConfig.storage, c.ExtraConfig.storageErr = c.newRESTStorage()
-	})
-
-	return c.ExtraConfig.storage, c.ExtraConfig.storageErr
-}
-
-func (c *completedConfig) newRESTStorage() (map[string]rest.Storage, error) {
 	storage := map[string]rest.Storage{}
 	for resource, storageBuilder := range c.ExtraConfig.StorageBuilders {
 		restStorage, err := storageBuilder(c.GenericConfig)
@@ -134,5 +109,11 @@ func (c *completedConfig) newRESTStorage() (map[string]rest.Storage, error) {
 		storage[resource] = restStorage
 	}
 
-	return storage, nil
+	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(c.ExtraConfig.GroupVersion.Group, scheme, metav1.ParameterCodec, codecs)
+	apiGroupInfo.VersionedResourcesStorageMap[c.ExtraConfig.GroupVersion.Version] = storage
+	if err := s.GenericAPIServer.InstallAPIGroup(&apiGroupInfo); err != nil {
+		return nil, err
+	}
+
+	return s, nil
 }

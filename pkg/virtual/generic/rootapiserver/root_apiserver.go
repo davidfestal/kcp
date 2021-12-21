@@ -84,25 +84,16 @@ func (c *RootAPIConfig) Complete() completedConfig {
 	return cfg
 }
 
-func (c *completedConfig) withAPIServerForAPIGroup(virtualWorkspaceName string, groupAPIServerBuilder builders.APIGroupAPIServerBuilder) apiServerAppenderFunc {
+func (c *completedConfig) withAPIServerForAPIGroup(virtualWorkspaceName string, groupAPIServerBuilder builders.GroupBuilder) apiServerAppenderFunc {
 	return func(delegateAPIServer genericapiserver.DelegationTarget) (genericapiserver.DelegationTarget, error) {
-		restStorageBuilders, err := groupAPIServerBuilder.Initialize(c.GenericConfig)
 		cfg := &virtualapiserver.GroupAPIServerConfig{
 			GenericConfig: &genericapiserver.RecommendedConfig{Config: *c.GenericConfig.Config, SharedInformerFactory: c.GenericConfig.SharedInformerFactory},
 			ExtraConfig: virtualapiserver.ExtraConfig{
-				Codecs:          legacyscheme.Codecs,
-				Scheme:          legacyscheme.Scheme,
-				GroupVersion:    groupAPIServerBuilder.GroupVersion,
-				StorageBuilders: restStorageBuilders,
+				GroupBuilder: groupAPIServerBuilder,
 			},
 		}
 		cfg.GenericConfig.PostStartHooks = map[string]genericapiserver.PostStartHookConfigEntry{}
-		config := cfg.Complete()
-		if err != nil {
-			return nil, err
-		}
-
-		server, err := config.New(virtualWorkspaceName, delegateAPIServer)
+		server, err := cfg.Complete().New(virtualWorkspaceName, delegateAPIServer)
 		if err != nil {
 			return nil, err
 		}
@@ -127,7 +118,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 			return nil, errors.New("Several virtual workspaces with the same name: " + name)
 		}
 		vwNames.Insert(name)
-		for _, groupAPIServerBuilder := range virtualWorkspace.GroupAPIServerBuilders {
+		for _, groupAPIServerBuilder := range virtualWorkspace.GroupBuilders {
 			var err error
 			delegateAPIServer, err = c.withAPIServerForAPIGroup(name, groupAPIServerBuilder)(delegateAPIServer)
 			if err != nil {
@@ -205,50 +196,11 @@ func (c completedConfig) NewRequestInfo(req *http.Request) (*genericapirequest.R
 
 func NewRootAPIConfig(secureServing *genericapiserveroptions.SecureServingOptionsWithLoopback, authenticationOptions *genericapiserveroptions.DelegatingAuthenticationOptions, informerStarts InformerStarts, rootAPIServerBuilders ...builders.VirtualWorkspaceBuilder) (*RootAPIConfig, error) {
 	genericConfig := genericapiserver.NewRecommendedConfig(legacyscheme.Codecs)
-	// Current default values
-	//Serializer:                   codecs,
-	//ReadWritePort:                443,
-	//BuildHandlerChainFunc:        DefaultBuildHandlerChain,
-	//HandlerChainWaitGroup:        new(utilwaitgroup.SafeWaitGroup),
-	//LegacyAPIGroupPrefixes:       sets.NewString(DefaultLegacyAPIPrefix),
-	//DisabledPostStartHooks:       sets.NewString(),
-	//HealthzChecks:                []healthz.HealthzChecker{healthz.PingHealthz, healthz.LogHealthz},
-	//EnableIndex:                  true,
-	//EnableDiscovery:              true,
-	//EnableProfiling:              true,
-	//EnableMetrics:                true,
-	//MaxRequestsInFlight:          400,
-	//MaxMutatingRequestsInFlight:  200,
-	//RequestTimeout:               time.Duration(60) * time.Second,
-	//MinRequestTimeout:            1800,
-	//EnableAPIResponseCompression: utilfeature.DefaultFeatureGate.Enabled(features.APIResponseCompression),
-	//LongRunningFunc: genericfilters.BasicLongRunningRequestCheck(sets.NewString("watch"), sets.NewString()),
-
-	_ = genericapiserveroptions.NewCoreAPIOptions().ApplyTo(genericConfig)
-
-	// these are set via options
-	//SecureServing *SecureServingInfo
-	//Authentication AuthenticationInfo
-	//Authorization AuthorizationInfo
-	//LoopbackClientConfig *restclient.Config
-	// this is set after the options are overlayed to get the authorizer we need.
-	//AdmissionControl      admission.Interface
-	//ReadWritePort int
-	//PublicAddress net.IP
-
-	// these are defaulted sanely during complete
-	//DiscoveryAddresses discovery.Addresses
+	if err := genericapiserveroptions.NewCoreAPIOptions().ApplyTo(genericConfig); err != nil {
+		return nil, err
+	}
 
 	// TODO: genericConfig.ExternalAddress = ... allow a command line flag or it to be overridden by a top-level multiroot apiServer
-
-	/*
-		// previously overwritten.  I don't know why
-		genericConfig.RequestTimeout = time.Duration(60) * time.Second
-		genericConfig.MinRequestTimeout = int((time.Duration(60) * time.Minute).Seconds())
-		genericConfig.MaxRequestsInFlight = -1 // TODO: allow configuring
-		genericConfig.MaxMutatingRequestsInFlight = -1 // TODO configuring
-		genericConfig.LongRunningFunc = apiserverconfig.IsLongRunningRequest
-	*/
 
 	if err := secureServing.ApplyTo(&genericConfig.Config.SecureServing, &genericConfig.Config.LoopbackClientConfig); err != nil {
 		return nil, err

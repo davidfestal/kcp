@@ -22,7 +22,10 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"github.com/kcp-dev/kcp/config"
+	"github.com/kcp-dev/kcp/pkg/authorization"
 	"io/ioutil"
+	"k8s.io/apiserver/pkg/authorization/union"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -62,6 +65,7 @@ import (
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
 	"k8s.io/apiserver/pkg/storage/storagebackend"
+	"k8s.io/apiserver/pkg/util/webhook"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
@@ -78,7 +82,6 @@ import (
 	"k8s.io/kubernetes/pkg/genericcontrolplane/aggregator"
 	"k8s.io/kubernetes/pkg/genericcontrolplane/options"
 
-	"github.com/kcp-dev/kcp/config"
 	tenancyapi "github.com/kcp-dev/kcp/pkg/apis/tenancy"
 	kcpclient "github.com/kcp-dev/kcp/pkg/client/clientset/versioned"
 	"github.com/kcp-dev/kcp/pkg/client/clientset/versioned/scheme"
@@ -250,7 +253,7 @@ func (s *Server) Run(ctx context.Context) error {
 		if s.cfg.EnableSharding {
 			apiHandler = http.HandlerFunc(sharding.ServeHTTP(apiHandler, clientLoader))
 		}
-		apiHandler = http.HandlerFunc(ServeHTTP(genericapiserver.DefaultBuildHandlerChain(apiHandler, c)))
+		apiHandler = WithClusterScope(genericapiserver.DefaultBuildHandlerChain(apiHandler, c))
 
 		return apiHandler
 	}
@@ -261,16 +264,6 @@ func (s *Server) Run(ctx context.Context) error {
 		CertFile:      s.cfg.EtcdClientInfo.CertFile,
 		KeyFile:       s.cfg.EtcdClientInfo.KeyFile,
 		TrustedCAFile: s.cfg.EtcdClientInfo.TrustedCAFile,
-	}
-
-	serverOptions.APIExtensionsNewClientFunc = func(config *rest.Config) (apiextensionsclient.Interface, error) {
-		crossClusterScope := controllerz.NewScope("*", controllerz.WildcardScope(true))
-
-		client, err := apiextensionsclient.NewScoperForConfig(config)
-		if err != nil {
-			return nil, err
-		}
-		return client.Scope(crossClusterScope), nil
 	}
 
 	loopbackClientCert, loopbackClientCertKey, err := serverOptions.SecureServing.NewLoopbackClientCert()
@@ -295,14 +288,26 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	kcpClient := kcpClusterClient.Scope(crossCluster)
-
 	kcpSharedInformerFactory := kcpexternalversions.NewSharedInformerFactoryWithOptions(kcpClient, resyncPeriod)
-	s.AddPostStartHook("FIXME-start-informers-for-crd-getter", func(context genericapiserver.PostStartHookContext) error {
+	s.AddPostStartHook("FIXME-start-kcp-informers-crds", func(context genericapiserver.PostStartHookContext) error {
 		if err := s.waitForCRDServer(context.StopCh); err != nil {
 			return err
 		}
+
 		kcpSharedInformerFactory.Start(context.StopCh)
 		kcpSharedInformerFactory.WaitForCacheSync(context.StopCh)
+		return nil
+	})
+
+	kubeClient, err := kubernetes.NewScoperForConfig(loopbackClientConfig)
+	if err != nil {
+		return err
+	}
+	crossClusterKubeClient := kubeClient.Scope(crossCluster)
+	kubeSharedInformerFactory := coreexternalversions.NewSharedInformerFactoryWithOptions(crossClusterKubeClient, resyncPeriod)
+	s.AddPostStartHook("FIXME-start-kcp-informers-kube", func(context genericapiserver.PostStartHookContext) error {
+		kubeSharedInformerFactory.Start(context.StopCh)
+		kubeSharedInformerFactory.WaitForCacheSync(context.StopCh)
 		return nil
 	})
 	// FIXME: (end) switch to a single set of shared informers
@@ -312,23 +317,65 @@ func (s *Server) Run(ctx context.Context) error {
 		workspaceLister = kcpSharedInformerFactory.Tenancy().V1alpha1().Workspaces().Lister()
 	}
 
-	serverOptions.APIExtensionsNewSharedInformerFactoryFunc = func(client apiextensionsclient.Interface, resyncPeriod time.Duration) apiextensionsexternalversions.SharedInformerFactory {
+	completedOptions, err := genericcontrolplane.Complete(serverOptions)
+	if err != nil {
+		return err
+	}
+
+	apisConfig, pluginInitializer, err := genericcontrolplane.CreateKubeAPIServerConfig(completedOptions)
+	if err != nil {
+		return err
+	}
+
+	bootstrapAuth, bootstrapResolver := authorization.NewBootstrapAuthorizer(kubeSharedInformerFactory)
+	localAuth, localResolver := authorization.NewLocalAuthorizer(kubeSharedInformerFactory)
+	apisConfig.GenericConfig.RuleResolver = union.NewRuleResolvers(bootstrapResolver, localResolver)
+	apisConfig.GenericConfig.Authorization.Authorizer = authorization.NewWorkspaceAuthorizer(kubeSharedInformerFactory, union.New(bootstrapAuth, localAuth))
+
+	// Wire in a ServiceResolver that always returns an error that ResolveEndpoint is not yet
+	// supported. The effect is that CRD webhook conversions are not supported and will always get an
+	// error.
+	serviceResolver := &unimplementedServiceResolver{}
+
+	// If additional API servers are added, they should be gated.
+	apiExtensionsConfig, err := genericcontrolplane.CreateAPIExtensionsConfig(
+		*apisConfig.GenericConfig,
+		apisConfig.ExtraConfig.VersionedInformers,
+		pluginInitializer,
+		completedOptions.ServerRunOptions,
+		serviceResolver,
+		webhook.NewDefaultAuthenticationInfoResolverWrapper(
+			nil,
+			apisConfig.GenericConfig.EgressSelector,
+			apisConfig.GenericConfig.LoopbackClientConfig,
+			apisConfig.GenericConfig.TracerProvider,
+		),
+	)
+	if err != nil {
+		return fmt.Errorf("configure api extensions: %v", err)
+	}
+	apiExtensionsConfig.ExtraConfig.NewInformerFactoryFunc = func(client apiextensionsclient.Interface, resyncPeriod time.Duration) apiextensionsexternalversions.SharedInformerFactory {
 		f := apiextensionsexternalversions.NewSharedInformerFactory(client, resyncPeriod)
 		return &kcpAPIExtensionsSharedInformerFactory{
 			SharedInformerFactory: f,
 			workspaceLister:       workspaceLister,
 		}
 	}
+	apiExtensionsConfig.ExtraConfig.NewClientFunc = func(config *rest.Config) (apiextensionsclient.Interface, error) {
+		crossClusterScope := controllerz.NewScope("*", controllerz.WildcardScope(true))
 
-	cpOptions, err := genericcontrolplane.Complete(serverOptions)
+		client, err := apiextensionsclient.NewScoperForConfig(config)
+		if err != nil {
+			return nil, err
+		}
+		return client.Scope(crossClusterScope), nil
+	}
+
+	serverChain, err := genericcontrolplane.CreateServerChain(apisConfig.Complete(), apiExtensionsConfig.Complete())
 	if err != nil {
 		return err
 	}
 
-	serverChain, err := genericcontrolplane.CreateServerChain(cpOptions, ctx.Done())
-	if err != nil {
-		return err
-	}
 	server := serverChain.MiniAggregator.GenericAPIServer
 
 	crdInformer := serverChain.CustomResourceDefinitions.Informers.Apiextensions().V1().CustomResourceDefinitions().Informer()
@@ -511,6 +558,9 @@ func (s *Server) Run(ctx context.Context) error {
 		"user":          {Cluster: "user", AuthInfo: "loopback"},
 	}
 	clientConfig.CurrentContext = "admin"
+
+	// ========================================================================================================
+	// TODO: split apart everything after this line, into their own commands, optional launched in this process
 
 	if s.cfg.EnableSharding {
 		adminConfig, err := clientcmd.NewNonInteractiveClientConfig(clientConfig, "admin", &clientcmd.ConfigOverrides{}, nil).ClientConfig()
@@ -1136,4 +1186,14 @@ func (r *inMemoryResponseWriter) String() string {
 		s += fmt.Sprintf(", Header: %s", r.header)
 	}
 	return s
+}
+
+// unimplementedServiceResolver is a webhook.ServiceResolver that always returns an error, because
+// we have not implemented support for this yet. As a result, CRD webhook conversions are not
+// supported.
+type unimplementedServiceResolver struct{}
+
+// ResolveEndpoint always returns an error that this is not yet supported.
+func (r *unimplementedServiceResolver) ResolveEndpoint(namespace string, name string, port int32) (*url.URL, error) {
+	return nil, fmt.Errorf("CRD webhook conversions are not yet supported in kcp")
 }

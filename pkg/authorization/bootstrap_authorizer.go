@@ -8,7 +8,8 @@ import (
 	rbacauthorizer "k8s.io/kubernetes/plugin/pkg/auth/authorizer/rbac"
 )
 
-func NewBootstrapAuthorizer(informers clientgoinformers.SharedInformerFactory) (authorizer.Authorizer, authorizer.RuleResolver) {
+func NewOrgWorkspaceAuthorizer(informers clientgoinformers.SharedInformerFactory) (authorizer.Authorizer, authorizer.RuleResolver) {
+	// TODO: currently hardcoded, change to dynamically loading the org workspace
 	scope := cache.NewScope("admin")
 
 	a := rbac.New(&rbacauthorizer.RoleGetter{Lister: informers.Rbac().V1().Roles().Lister().Scoped(scope)},

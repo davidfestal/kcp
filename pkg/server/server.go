@@ -328,10 +328,10 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 
-	bootstrapAuth, bootstrapResolver := authorization.NewBootstrapAuthorizer(kubeSharedInformerFactory)
+	orgAuth, orgResolver := authorization.NewOrgWorkspaceAuthorizer(kubeSharedInformerFactory)
 	localAuth, localResolver := authorization.NewLocalAuthorizer(kubeSharedInformerFactory)
-	apisConfig.GenericConfig.RuleResolver = union.NewRuleResolvers(bootstrapResolver, localResolver)
-	apisConfig.GenericConfig.Authorization.Authorizer = authorization.NewWorkspaceAuthorizer(kubeSharedInformerFactory, union.New(bootstrapAuth, localAuth))
+	apisConfig.GenericConfig.RuleResolver = union.NewRuleResolvers(orgResolver, localResolver)
+	apisConfig.GenericConfig.Authorization.Authorizer = authorization.NewWorkspaceAuthorizer(kubeSharedInformerFactory, union.New(orgAuth, localAuth))
 
 	// Wire in a ServiceResolver that always returns an error that ResolveEndpoint is not yet
 	// supported. The effect is that CRD webhook conversions are not supported and will always get an

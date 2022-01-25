@@ -236,7 +236,7 @@ func TestListPersonalWorkspaces(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: personalScope,
+			scope: PersonalScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -295,7 +295,7 @@ func TestListPersonalWorkspacesWithPrettyName(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: personalScope,
+			scope: PersonalScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -358,7 +358,7 @@ func TestListOrganizationWorkspaces(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: organizationScope,
+			scope: OrganizationScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -413,7 +413,7 @@ func TestListOrganizationWorkspacesWithPrettyName(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: organizationScope,
+			scope: OrganizationScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -468,7 +468,7 @@ func TestGetPersonalWorkspace(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: personalScope,
+			scope: PersonalScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -526,7 +526,7 @@ func TestGetPersonalWorkspaceWithPrettyName(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: personalScope,
+			scope: PersonalScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -584,7 +584,7 @@ func TestGetPersonalWorkspaceNotFoundNoPermission(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: personalScope,
+			scope: PersonalScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -650,7 +650,7 @@ func TestCreateWorkspaceInOrganizationNotAllowed(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: organizationScope,
+			scope: OrganizationScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -681,7 +681,7 @@ func TestCreateWorkspace(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: personalScope,
+			scope: PersonalScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -792,7 +792,7 @@ func TestCreateWorkspaceWithPrettyName(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: personalScope,
+			scope: PersonalScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -977,7 +977,7 @@ func TestCreateWorkspacePrettyNameAlreadyExists(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: personalScope,
+			scope: PersonalScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -1087,7 +1087,7 @@ func TestDeleteWorkspaceNotFound(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: personalScope,
+			scope: PersonalScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -1180,7 +1180,7 @@ func TestDeleteWorkspaceForbidden(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: personalScope,
+			scope: PersonalScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -1273,7 +1273,7 @@ func TestDeletePersonalWorkspace(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: personalScope,
+			scope: PersonalScope,
 			reviewerProvider: mockReviewerProvider{
 				"get": mockReviewer{
 					"foo": mockReview{
@@ -1376,7 +1376,7 @@ func TestDeletePersonalWorkspaceWithPrettyName(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: personalScope,
+			scope: PersonalScope,
 			reviewerProvider: mockReviewerProvider{
 				"get": mockReviewer{
 					"foo--1": mockReview{
@@ -1572,7 +1572,7 @@ func TestKubeconfigPersonalWorkspaceWithPrettyName(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: personalScope,
+			scope: PersonalScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -1641,7 +1641,7 @@ func TestKubeconfigPersonalWorkspaceWithPrettyName(t *testing.T) {
 			require.NoError(t, err)
 			require.IsType(t, KubeConfig(""), response)
 			responseWorkspace := response.(KubeConfig)
-			assert.YAMLEq(t, expectedWorkspaceKubeconfigContent(personalScope), string(responseWorkspace))
+			assert.YAMLEq(t, expectedWorkspaceKubeconfigContent(PersonalScope), string(responseWorkspace))
 		},
 	}
 	applyTest(t, test)
@@ -1656,7 +1656,7 @@ func TestKubeconfigPersonalWorkspace(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: personalScope,
+			scope: PersonalScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -1725,7 +1725,7 @@ func TestKubeconfigPersonalWorkspace(t *testing.T) {
 			require.NoError(t, err)
 			require.IsType(t, KubeConfig(""), response)
 			responseWorkspace := response.(KubeConfig)
-			assert.YAMLEq(t, expectedWorkspaceKubeconfigContent(personalScope), string(responseWorkspace))
+			assert.YAMLEq(t, expectedWorkspaceKubeconfigContent(PersonalScope), string(responseWorkspace))
 		},
 	}
 	applyTest(t, test)
@@ -1740,7 +1740,7 @@ func TestKubeconfigOrganizationWorkspace(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: organizationScope,
+			scope: OrganizationScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -1809,7 +1809,7 @@ func TestKubeconfigOrganizationWorkspace(t *testing.T) {
 			require.NoError(t, err)
 			require.IsType(t, KubeConfig(""), response)
 			responseWorkspace := response.(KubeConfig)
-			assert.YAMLEq(t, expectedWorkspaceKubeconfigContent(organizationScope), string(responseWorkspace))
+			assert.YAMLEq(t, expectedWorkspaceKubeconfigContent(OrganizationScope), string(responseWorkspace))
 		},
 	}
 	applyTest(t, test)
@@ -1824,7 +1824,7 @@ func TestKubeconfigFailBecauseInvalidCADataBase64(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: organizationScope,
+			scope: OrganizationScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -1911,7 +1911,7 @@ func TestKubeconfigFailBecauseWithoutContext(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: organizationScope,
+			scope: OrganizationScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -1997,7 +1997,7 @@ func TestKubeconfigFailBecauseInvalid(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: organizationScope,
+			scope: OrganizationScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -2083,7 +2083,7 @@ func TestKubeconfigFailSecretDataNotFound(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: organizationScope,
+			scope: OrganizationScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -2166,7 +2166,7 @@ func TestKubeconfigFailBecauseSecretNotFound(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: organizationScope,
+			scope: OrganizationScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -2241,7 +2241,7 @@ func TestKubeconfigFailBecauseShardNotFound(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: organizationScope,
+			scope: OrganizationScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},
@@ -2303,7 +2303,7 @@ func TestKubeconfigFailBecauseWorkspaceNotFound(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:  user,
-			scope: organizationScope,
+			scope: OrganizationScope,
 			reviewerProvider: mockReviewerProvider{
 				"get":    mockReviewer{},
 				"delete": mockReviewer{},

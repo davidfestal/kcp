@@ -37,6 +37,7 @@ import (
 	"github.com/kcp-dev/kcp/pkg/apis/tenancy/v1alpha1"
 	"github.com/kcp-dev/kcp/pkg/client/clientset/versioned/scheme"
 	tenancyclient "github.com/kcp-dev/kcp/pkg/client/clientset/versioned/typed/tenancy/v1alpha1"
+	"github.com/kcp-dev/kcp/pkg/virtual/workspaces/registry"
 )
 
 var (
@@ -302,6 +303,9 @@ func (o *WorkspaceOptions) ensureWorkspaceDirectoryContextExists() error {
 
 func PrioritizedAuthInfo(values ...*api.AuthInfo) *api.AuthInfo {
 	for _, value := range values {
+		if value == nil {
+			continue
+		}
 		value := *value
 		if value.Token != "" || value.TokenFile != "" || value.Password != "" || value.Username != "" {
 			return &value
@@ -329,6 +333,15 @@ func (o *WorkspaceOptions) WorkspaceDirectoryRestConfig() (*rest.Config, error) 
 	return clientcmd.NewDefaultClientConfig(*o.startingConfig, overrides).ClientConfig()
 }
 
+func getScopeAndName(workspaceKey string) (string, string) {
+	if strings.HasPrefix(workspaceKey, registry.PersonalScope+"/") {
+		return registry.PersonalScope, strings.TrimPrefix(workspaceKey, registry.PersonalScope+"/")
+	} else if strings.HasPrefix(workspaceKey, registry.OrganizationScope+"/") {
+		return registry.OrganizationScope, strings.TrimPrefix(workspaceKey, registry.OrganizationScope+"/")
+	}
+	return "", workspaceKey
+}
+
 func (o *WorkspaceOptions) RunUse(workspaceName string) error {
 
 	workspaceDirectoryRestConfig, err := o.WorkspaceDirectoryRestConfig()
@@ -345,14 +358,14 @@ func (o *WorkspaceOptions) RunUse(workspaceName string) error {
 		if _, previousWorkspaceExists := o.startingConfig.Contexts[kcpPreviousWorkspaceContextKey]; !previousWorkspaceExists {
 			return errors.New("No previous workspace exists !")
 		}
-		workspaceName = string(o.startingConfig.Contexts[kcpPreviousWorkspaceContextKey].Cluster)
+		_, workspaceName = getScopeAndName(string(o.startingConfig.Contexts[kcpPreviousWorkspaceContextKey].Cluster))
 		delete(o.startingConfig.Contexts, kcpPreviousWorkspaceContextKey)
 	}
 
-	currentWorkspaceName, err := o.getCurrent(tenancyClient)
+	currentWorkspaceScope, currentWorkspaceName, err := o.getCurrent(tenancyClient)
 	if err == nil && currentWorkspaceName != "" {
 		o.startingConfig.Contexts[kcpPreviousWorkspaceContextKey] = &api.Context{
-			Cluster: currentWorkspaceName,
+			Cluster: currentWorkspaceScope + "/" + currentWorkspaceName,
 		}
 	}
 
@@ -366,7 +379,8 @@ func (o *WorkspaceOptions) RunUse(workspaceName string) error {
 		return err
 	}
 
-	workspaceContextName := kcpWorkspaceContextNamePrefix + workspaceName
+	workspaceConfigCurrentContext := workspaceConfig.CurrentContext
+	workspaceContextName := kcpWorkspaceContextNamePrefix + workspaceConfigCurrentContext
 
 	currentContextName := o.startingConfig.CurrentContext
 	if o.kubectlOverrides.CurrentContext != "" {
@@ -378,7 +392,7 @@ func (o *WorkspaceOptions) RunUse(workspaceName string) error {
 	if currentContext != nil {
 		currentContextAuthInfo = o.startingConfig.AuthInfos[currentContext.AuthInfo]
 	}
-	o.startingConfig.Clusters[workspaceContextName] = workspaceConfig.Clusters[workspaceName]
+	o.startingConfig.Clusters[workspaceContextName] = workspaceConfig.Clusters[workspaceConfigCurrentContext]
 	workspaceAuthInfo := PrioritizedAuthInfo(&o.kubectlOverrides.AuthInfo, currentContextAuthInfo)
 	o.startingConfig.AuthInfos[workspaceContextName] = workspaceAuthInfo
 
@@ -389,33 +403,33 @@ func (o *WorkspaceOptions) RunUse(workspaceName string) error {
 
 	o.startingConfig.CurrentContext = workspaceContextName
 
-	if _, err := o.Out.Write([]byte(fmt.Sprintf("Current workspace is \"%s\".\n", workspaceName))); err != nil {
+	if _, err := o.Out.Write([]byte(fmt.Sprintf("Current %s workspace is \"%s\".\n", registry.PersonalScope, workspaceName))); err != nil {
 		return err
 	}
 	return clientcmd.ModifyConfig(o.configAccess, *o.startingConfig, true)
 }
 
-func (o *WorkspaceOptions) getCurrent(tenancyClient *tenancyclient.TenancyV1alpha1Client) (string, error) {
+func (o *WorkspaceOptions) getCurrent(tenancyClient *tenancyclient.TenancyV1alpha1Client) (scope string, name string, err error) {
 	currentContextName := o.startingConfig.CurrentContext
 	if o.kubectlOverrides.CurrentContext != "" {
 		currentContextName = o.kubectlOverrides.CurrentContext
 	}
 
 	if currentContextName == "" {
-		return "", errors.New("No current context !")
+		return "", "", errors.New("No current context !")
 	}
 
 	if !strings.HasPrefix(currentContextName, kcpWorkspaceContextNamePrefix) {
-		return "", errors.New("The current context is not a KCP workspace !")
+		return "", "", errors.New("The current context is not a KCP workspace !")
 	}
 
-	workspaceName := strings.TrimPrefix(currentContextName, kcpWorkspaceContextNamePrefix)
+	scope, workspaceName := getScopeAndName(strings.TrimPrefix(currentContextName, kcpWorkspaceContextNamePrefix))
 
 	if _, err := tenancyClient.Workspaces().Get(context.TODO(), workspaceName, metav1.GetOptions{}); err != nil {
-		return workspaceName, err
+		return scope, workspaceName, err
 	}
 
-	return workspaceName, nil
+	return scope, workspaceName, nil
 }
 
 func (o *WorkspaceOptions) RunCurrent() error {
@@ -429,15 +443,15 @@ func (o *WorkspaceOptions) RunCurrent() error {
 		return err
 	}
 
-	workspaceName, err := o.getCurrent(tenancyClient)
+	scope, workspaceName, err := o.getCurrent(tenancyClient)
 	if err != nil {
 		if workspaceName != "" {
-			_, _ = o.Out.Write([]byte(fmt.Sprintf("Current workspace is \"%s\".\n", workspaceName)))
+			_, _ = o.Out.Write([]byte(fmt.Sprintf("Current %s workspace is \"%s\".\n", scope, workspaceName)))
 		}
 		return err
 	}
 
-	_, err = o.Out.Write([]byte(fmt.Sprintf("Current workspace is \"%s\".\n", workspaceName)))
+	_, err = o.Out.Write([]byte(fmt.Sprintf("Current %s workspace is \"%s\".\n", scope, workspaceName)))
 	return err
 }
 

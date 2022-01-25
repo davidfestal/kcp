@@ -2,7 +2,8 @@ package authorization
 
 import (
 	"context"
-	"github.com/kcp-dev/kcp/pkg/apis/tenancy/v1alpha1"
+	"strings"
+
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
@@ -12,7 +13,8 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/plugin/pkg/auth/authorizer/rbac"
-	"strings"
+
+	"github.com/kcp-dev/kcp/pkg/apis/tenancy/v1alpha1"
 )
 
 func NewWorkspaceContentAuthorizer(versionedInformers clientgoinformers.SharedInformerFactory, delegate authorizer.Authorizer) authorizer.Authorizer {

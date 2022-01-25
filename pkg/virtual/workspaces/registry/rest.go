@@ -35,7 +35,6 @@ import (
 	"k8s.io/apiserver/pkg/authentication/user"
 	kuser "k8s.io/apiserver/pkg/authentication/user"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
-	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
 	rbacinformers "k8s.io/client-go/informers/rbac/v1"
 	"k8s.io/client-go/kubernetes"
@@ -600,7 +599,6 @@ func (s *KubeconfigSubresourceREST) Get(ctx context.Context, name string, option
 	scope := ctx.Value(WorkspacesScopeKey).(string)
 	if workspace, isAWorkspace := workspace.(*tenancyv1alpha1.Workspace); isAWorkspace {
 		if conditions.IsTrue(workspace, tenancyv1alpha1.WorkspaceURLValid) {
-			ctx := genericapirequest.WithCluster(context.TODO(), genericapirequest.Cluster{Name: workspace.ClusterName})
 			shard, err := s.workspaceShardClient.Get(ctx, workspace.Status.Location.Current, metav1.GetOptions{})
 			if err != nil {
 				return nil, wrapError(err)

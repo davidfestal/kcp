@@ -32,6 +32,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -331,7 +332,7 @@ func (s *Server) Run(ctx context.Context) error {
 	orgAuth, orgResolver := authorization.NewOrgWorkspaceAuthorizer(kubeSharedInformerFactory)
 	localAuth, localResolver := authorization.NewLocalAuthorizer(kubeSharedInformerFactory)
 	apisConfig.GenericConfig.RuleResolver = union.NewRuleResolvers(orgResolver, localResolver)
-	apisConfig.GenericConfig.Authorization.Authorizer = authorization.NewWorkspaceAuthorizer(kubeSharedInformerFactory, union.New(orgAuth, localAuth))
+	apisConfig.GenericConfig.Authorization.Authorizer = authorization.NewWorkspaceContentAuthorizer(kubeSharedInformerFactory, union.New(orgAuth, localAuth))
 
 	// Wire in a ServiceResolver that always returns an error that ResolveEndpoint is not yet
 	// supported. The effect is that CRD webhook conversions are not supported and will always get an
@@ -835,11 +836,7 @@ func (s *Server) startNamespaceController(hookContext genericapiserver.PostStart
 	).Run(2, hookContext.StopCh)
 
 	versionedInformer.Start(hookContext.StopCh)
-	if notSynced := versionedInformer.WaitForCacheSync(hookContext.StopCh); len(notSynced) > 0 {
-		return fmt.Errorf("failed to wait for caches to sync: %v", notSynced)
-	}
-
-	return nil
+	return AllInSync(versionedInformer.WaitForCacheSync(hookContext.StopCh))
 }
 
 func (s *Server) startClusterRoleAggregationController(hookContext genericapiserver.PostStartHookContext) error {
@@ -858,10 +855,19 @@ func (s *Server) startClusterRoleAggregationController(hookContext genericapiser
 	}()
 
 	versionedInformer.Start(hookContext.StopCh)
-	if notSynced := versionedInformer.WaitForCacheSync(hookContext.StopCh); len(notSynced) > 0 {
-		return fmt.Errorf("failed to wait for caches to sync: %v", notSynced)
-	}
+	return AllInSync(versionedInformer.WaitForCacheSync(hookContext.StopCh))
+}
 
+func AllInSync(syncStatus map[reflect.Type]bool) error {
+	notInSync := []reflect.Type{}
+	for t, synced := range syncStatus {
+		if !synced {
+			notInSync = append(notInSync, t)
+		}
+	}
+	if len(notInSync) > 0 {
+		return fmt.Errorf("failed to wait for caches to sync: %v", notInSync)
+	}
 	return nil
 }
 

@@ -23,34 +23,45 @@ import (
 	rbacv1client "k8s.io/client-go/kubernetes/typed/rbac/v1"
 	rbacv1listers "k8s.io/client-go/listers/rbac/v1"
 
+	tenancyv1alpha1 "github.com/kcp-dev/kcp/pkg/apis/tenancy/v1alpha1"
 	tenancyclient "github.com/kcp-dev/kcp/pkg/client/clientset/versioned/typed/tenancy/v1alpha1"
 	workspaceinformer "github.com/kcp-dev/kcp/pkg/client/informers/externalversions/tenancy/v1alpha1"
 	frameworkrbac "github.com/kcp-dev/kcp/pkg/virtual/framework/rbac"
 	workspaceauth "github.com/kcp-dev/kcp/pkg/virtual/workspaces/auth"
 )
 
-// CreateAndStartOrg creates an Org struct that contains all the required clients and caches to retrieve user workspaces inside an org
+// CreateAndStartOrg creates an Org that contains all the required clients and caches to retrieve user workspaces inside an org
 // As part of an Org, a WorkspaceAuthCache is created and ensured to be started.
-func CreateAndStartOrg(orgRBACClient rbacv1client.RbacV1Interface, orgClusteWorkspaceClient tenancyclient.ClusterWorkspaceInterface, orgRBACInformers rbacinformers.Interface, orgCRBInformer rbacinformers.ClusterRoleBindingInformer, orgClusterWorkspaceInformer workspaceinformer.ClusterWorkspaceInformer) *Org {
+func CreateAndStartOrg(
+	orgRBACClient rbacv1client.RbacV1Interface,
+	orgClusteWorkspaceClient tenancyclient.ClusterWorkspaceInterface,
+	orgRBACInformers rbacinformers.Interface,
+	orgCRBInformer rbacinformers.ClusterRoleBindingInformer,
+	orgClusterWorkspaceInformer workspaceinformer.ClusterWorkspaceInformer,
+) *Org {
 	orgSubjectLocator := frameworkrbac.NewSubjectLocator(orgRBACInformers)
-	orgReviewerProvider := workspaceauth.NewAuthorizerReviewerProvider(orgSubjectLocator)
+	orgReviewer := workspaceauth.NewReviewer(orgSubjectLocator)
 
 	orgWorkspaceAuthorizationCache := workspaceauth.NewAuthorizationCache(
 		orgClusterWorkspaceInformer.Lister(),
 		orgClusterWorkspaceInformer.Informer(),
-		orgReviewerProvider.Create("get", "clusterworkspaces", "workspace"),
+		orgReviewer,
+		*workspaceauth.NewAttributesBuilder().
+			Verb("get").
+			Resource(tenancyv1alpha1.SchemeGroupVersion.WithResource("clusterworkspaces"), "workspace").
+			AttributesRecord,
 		orgRBACInformers,
 	)
 
 	newOrg := &Org{
-		rbacClient:                orgRBACClient,
-		crbInformer:               orgCRBInformer,
-		crbLister:                 orgCRBInformer.Lister(),
-		workspaceReviewerProvider: orgReviewerProvider,
-		clusterWorkspaceClient:    orgClusteWorkspaceClient,
-		clusterWorkspaceLister:    orgWorkspaceAuthorizationCache,
-		stopCh:                    make(chan struct{}),
-		authCache:                 orgWorkspaceAuthorizationCache,
+		rbacClient:             orgRBACClient,
+		crbInformer:            orgCRBInformer,
+		crbLister:              orgCRBInformer.Lister(),
+		workspaceReviewer:      orgReviewer,
+		clusterWorkspaceClient: orgClusteWorkspaceClient,
+		clusterWorkspaceLister: orgWorkspaceAuthorizationCache,
+		stopCh:                 make(chan struct{}),
+		authCache:              orgWorkspaceAuthorizationCache,
 	}
 
 	newOrg.authCache.Run(1*time.Second, newOrg.stopCh)
@@ -58,14 +69,20 @@ func CreateAndStartOrg(orgRBACClient rbacv1client.RbacV1Interface, orgClusteWork
 	return newOrg
 }
 
-func RootOrg(rootRBACClient rbacv1client.RbacV1Interface, rootCRBInformer rbacinformers.ClusterRoleBindingInformer, rootReviewerProvider workspaceauth.ReviewerProvider, rootClusteWorkspaceClient tenancyclient.ClusterWorkspaceInterface, rootWorkspaceAuthorizationCache *workspaceauth.AuthorizationCache) *Org {
+func RootOrg(
+	rootRBACClient rbacv1client.RbacV1Interface,
+	rootCRBInformer rbacinformers.ClusterRoleBindingInformer,
+	rootReviewer *workspaceauth.Reviewer,
+	rootClusteWorkspaceClient tenancyclient.ClusterWorkspaceInterface,
+	rootWorkspaceAuthorizationCache *workspaceauth.AuthorizationCache,
+) *Org {
 	return &Org{
-		rbacClient:                rootRBACClient,
-		crbInformer:               rootCRBInformer,
-		workspaceReviewerProvider: rootReviewerProvider,
-		clusterWorkspaceClient:    rootClusteWorkspaceClient,
-		clusterWorkspaceLister:    rootWorkspaceAuthorizationCache,
-		authCache:                 rootWorkspaceAuthorizationCache,
+		rbacClient:             rootRBACClient,
+		crbInformer:            rootCRBInformer,
+		workspaceReviewer:      rootReviewer,
+		clusterWorkspaceClient: rootClusteWorkspaceClient,
+		clusterWorkspaceLister: rootWorkspaceAuthorizationCache,
+		authCache:              rootWorkspaceAuthorizationCache,
 	}
 }
 
@@ -75,9 +92,8 @@ type Org struct {
 	crbLister              rbacv1listers.ClusterRoleBindingLister
 	clusterWorkspaceClient tenancyclient.ClusterWorkspaceInterface
 
-	// workspaceReviewerProvider allow getting a reviewer that checks
-	// permissions for a given verb to workspaces
-	workspaceReviewerProvider workspaceauth.ReviewerProvider
+	// workspaceReviewer checks permissions for a given verb to workspaces
+	workspaceReviewer *workspaceauth.Reviewer
 	// workspaceLister can enumerate workspace lists that enforce policy
 	clusterWorkspaceLister workspaceauth.Lister
 	// authCache is a cache of cluster workspaces and associated subjects for a given org.

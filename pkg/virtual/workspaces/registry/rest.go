@@ -81,7 +81,7 @@ type REST struct {
 	// clusterWorkspaceCache is a global cache of cluster workspaces (for all orgs) used by the watcher.
 	clusterWorkspaceCache *workspacecache.ClusterWorkspaceCache
 
-	rootReviewerProvider workspaceauth.ReviewerProvider
+	rootReviewer *workspaceauth.Reviewer
 
 	// Allows extended behavior during creation, required
 	createStrategy rest.RESTCreateStrategy
@@ -122,13 +122,20 @@ var _ rest.GracefulDeleter = &REST{}
 
 // NewREST returns a RESTStorage object that will work against ClusterWorkspace resources in
 // org workspaces, projecting them to the Workspace type.
-func NewREST(rootTenancyClient tenancyclient.TenancyV1alpha1Interface, rootKubeClient kubernetes.Interface, clusterWorkspaceCache *workspacecache.ClusterWorkspaceCache, wilcardsCRBInformer rbacinformers.ClusterRoleBindingInformer, getOrg func(orgClusterName string) (*Org, error), rootReviewerProvider workspaceauth.ReviewerProvider) (*REST, *KubeconfigSubresourceREST) {
+func NewREST(
+	rootTenancyClient tenancyclient.TenancyV1alpha1Interface,
+	rootKubeClient kubernetes.Interface,
+	clusterWorkspaceCache *workspacecache.ClusterWorkspaceCache,
+	wilcardsCRBInformer rbacinformers.ClusterRoleBindingInformer,
+	getOrg func(orgClusterName string) (*Org, error),
+	rootReviewer *workspaceauth.Reviewer,
+) (*REST, *KubeconfigSubresourceREST) {
 	mainRest := &REST{
 		getOrg: getOrg,
 
 		crbInformer:           wilcardsCRBInformer,
 		clusterWorkspaceCache: clusterWorkspaceCache,
-		rootReviewerProvider:  rootReviewerProvider,
+		rootReviewer:          rootReviewer,
 
 		createStrategy: Strategy,
 		updateStrategy: Strategy,
@@ -155,21 +162,6 @@ func (*REST) NewList() runtime.Object {
 
 func (s *REST) NamespaceScoped() bool {
 	return false
-}
-
-func (s *REST) isUserAllowed(user user.Info, name string, reviewer workspaceauth.Reviewer) (bool, error) {
-	review, err := reviewer.Review(name)
-	if err != nil {
-		return false, err
-	}
-	if review.EvaluationError() != nil {
-		return false, review.EvaluationError()
-	}
-	if !sets.NewString(user.GetGroups()...).HasAny(review.Groups()...) && !sets.NewString(review.Users()...).Has(user.GetName()) {
-		return false, nil
-	}
-
-	return true, nil
 }
 
 func (s *REST) getPrettyNameFromInternalName(user kuser.Info, orgClusterName, internalName string) (string, error) {
@@ -212,21 +204,25 @@ func withoutGroupsWhenPersonal(user user.Info, scope string) user.Info {
 	return user
 }
 
-func (s *REST) extractOrg(user user.Info, ctx context.Context) (orgClusterName string, org *Org, err error) {
-	orgClusterName = ctx.Value(WorkspacesOrgKey).(string)
-
-	// Any user must has at least access to the content of the root org, in order to
-	// be able to fetch the list of the orgs he is member of
+func (s *REST) authorizeOrgForUser(orgClusterName string, user user.Info) (org *Org, err error) {
+	// Root org access is implicit for every user. For non-root orgs, we need to check for
+	// verb=access permissions against the clusterworkspaces/content of the ClusterWorkspace of
+	// the org in the root.
 	if orgClusterName != helper.RootCluster {
-		reviewer := s.rootReviewerProvider.Create("access", "clusterworkspaces", "content")
 		_, orgName, err := helper.ParseLogicalClusterName(orgClusterName)
 		if err != nil {
-			return "", nil, kerrors.NewBadRequest("unable to determine organization")
+			return nil, kerrors.NewBadRequest(fmt.Sprintf("invalid organization cluster name %q", orgClusterName))
 		}
-		if allowed, err := s.isUserAllowed(user, orgName, reviewer); err != nil {
-			return "", nil, kerrors.NewForbidden(tenancyv1beta1.Resource("workspaces"), "", err)
-		} else if !allowed {
-			return "", nil, kerrors.NewForbidden(tenancyv1beta1.Resource("workspaces"), "", fmt.Errorf("user %q is not allowed to access workspaces in organization %q", user.GetName(), orgName))
+
+		review := s.rootReviewer.Review(
+			workspaceauth.NewAttributesBuilder().
+				Verb("access").
+				Resource(tenancyv1alpha1.SchemeGroupVersion.WithResource("clusterworkspaces"), "content").
+				Name(orgName).
+				AttributesRecord,
+		)
+		if !review.Includes(user) {
+			return nil, kerrors.NewForbidden(tenancyv1beta1.Resource("workspaces"), "", fmt.Errorf("user %q is not allowed to access organization %q", user.GetName(), orgName))
 		}
 	}
 
@@ -236,11 +232,12 @@ func (s *REST) extractOrg(user user.Info, ctx context.Context) (orgClusterName s
 
 // List retrieves a list of Workspaces that match label.
 func (s *REST) List(ctx context.Context, options *metainternal.ListOptions) (runtime.Object, error) {
-	user, ok := apirequest.UserFrom(ctx)
+	userInfo, ok := apirequest.UserFrom(ctx)
 	if !ok {
 		return nil, kerrors.NewForbidden(tenancyv1beta1.Resource("workspaces"), "", fmt.Errorf("unable to list workspaces without a user on the context"))
 	}
-	orgClusterName, org, err := s.extractOrg(user, ctx)
+	orgClusterName := ctx.Value(WorkspacesOrgKey).(string)
+	org, err := s.authorizeOrgForUser(orgClusterName, userInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +250,7 @@ func (s *REST) List(ctx context.Context, options *metainternal.ListOptions) (run
 	// To make it correct we have to know the latest RV of the org workspace shard,
 	// and then wait for freshness relative to that RV of the lister.
 	labelSelector, _ := InternalListOptionsToSelectors(options)
-	clusterWorkspaceList, err := org.clusterWorkspaceLister.List(withoutGroupsWhenPersonal(user, scope), labelSelector)
+	clusterWorkspaceList, err := org.clusterWorkspaceLister.List(withoutGroupsWhenPersonal(userInfo, scope), labelSelector)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +258,7 @@ func (s *REST) List(ctx context.Context, options *metainternal.ListOptions) (run
 	if scope == PersonalScope {
 		for i, workspace := range clusterWorkspaceList.Items {
 			var err error
-			clusterWorkspaceList.Items[i].Name, err = s.getPrettyNameFromInternalName(user, orgClusterName, workspace.Name)
+			clusterWorkspaceList.Items[i].Name, err = s.getPrettyNameFromInternalName(userInfo, orgClusterName, workspace.Name)
 			if err != nil {
 				return nil, err
 			}
@@ -289,7 +286,8 @@ func (s *REST) Watch(ctx context.Context, options *metainternal.ListOptions) (wa
 		return nil, fmt.Errorf("no user")
 	}
 
-	orgClusterName, org, err := s.extractOrg(userInfo, ctx)
+	orgClusterName := ctx.Value(WorkspacesOrgKey).(string)
+	org, err := s.authorizeOrgForUser(orgClusterName, userInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -324,19 +322,20 @@ func (s *REST) getClusterWorkspace(ctx context.Context, name string, options *me
 		opts = *options
 	}
 
-	user, ok := apirequest.UserFrom(ctx)
+	userInfo, ok := apirequest.UserFrom(ctx)
 	if !ok {
 		return nil, kerrors.NewForbidden(tenancyv1beta1.Resource("workspaces"), "", fmt.Errorf("unable to list workspaces without a user on the context"))
 	}
 
-	orgClusterName, org, err := s.extractOrg(user, ctx)
+	orgClusterName := ctx.Value(WorkspacesOrgKey).(string)
+	org, err := s.authorizeOrgForUser(orgClusterName, userInfo)
 	if err != nil {
 		return nil, err
 	}
 
 	scope := ctx.Value(WorkspacesScopeKey).(string)
 	if scope == PersonalScope {
-		internalName, err := s.getInternalNameFromPrettyName(user, orgClusterName, name)
+		internalName, err := s.getInternalNameFromPrettyName(userInfo, orgClusterName, name)
 		if err != nil {
 			return nil, err
 		}
@@ -352,7 +351,7 @@ func (s *REST) getClusterWorkspace(ctx context.Context, name string, options *me
 	// Filtering by applying the lister operation might not be necessary anymore
 	// when using a semi-delegated authorizer in the workspaces virtual workspace that would
 	// delegate this authorization to the main KCP instance hosting the workspaces and RBAC rules
-	obj, err := org.clusterWorkspaceLister.List(withoutGroupsWhenPersonal(user, scope), labels.Everything())
+	obj, err := org.clusterWorkspaceLister.List(withoutGroupsWhenPersonal(userInfo, scope), labels.Everything())
 	if err != nil {
 		return nil, err
 	}
@@ -369,7 +368,7 @@ func (s *REST) getClusterWorkspace(ctx context.Context, name string, options *me
 	}
 
 	if scope == PersonalScope {
-		existingClusterWorkspace.Name, err = s.getPrettyNameFromInternalName(user, orgClusterName, existingClusterWorkspace.Name)
+		existingClusterWorkspace.Name, err = s.getPrettyNameFromInternalName(userInfo, orgClusterName, existingClusterWorkspace.Name)
 		if err != nil {
 			return nil, err
 		}
@@ -476,12 +475,13 @@ var _ = rest.Creater(&REST{})
 //
 func (s *REST) Create(ctx context.Context, obj runtime.Object, createValidation rest.ValidateObjectFunc, options *metav1.CreateOptions) (runtime.Object, error) {
 	var zero int64
-	user, ok := apirequest.UserFrom(ctx)
+	userInfo, ok := apirequest.UserFrom(ctx)
 	if !ok {
 		return nil, kerrors.NewForbidden(tenancyv1beta1.Resource("workspaces"), "", fmt.Errorf("unable to create a workspace without a user on the context"))
 	}
 
-	orgClusterName, org, err := s.extractOrg(user, ctx)
+	orgClusterName := ctx.Value(WorkspacesOrgKey).(string)
+	org, err := s.authorizeOrgForUser(orgClusterName, userInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -495,19 +495,23 @@ func (s *REST) Create(ctx context.Context, obj runtime.Object, createValidation 
 		return nil, kerrors.NewInvalid(tenancyv1beta1.SchemeGroupVersion.WithKind("Workspace").GroupKind(), obj.GetObjectKind().GroupVersionKind().String(), []*field.Error{})
 	}
 
-	reviewer := s.rootReviewerProvider.Create("member", "clusterworkspaces", "content")
 	_, orgName, err := helper.ParseLogicalClusterName(orgClusterName)
 	if err != nil {
 		return nil, kerrors.NewBadRequest("unable to determine organization")
 	}
-	if allowed, err := s.isUserAllowed(user, orgName, reviewer); err != nil {
-		return nil, kerrors.NewForbidden(tenancyv1beta1.Resource("workspaces"), "", err)
-	} else if !allowed {
-		return nil, kerrors.NewForbidden(tenancyv1beta1.Resource("workspaces"), "", fmt.Errorf("user %q is not allowed to create workspaces in organization %q", user.GetName(), orgName))
+	review := s.rootReviewer.Review(
+		workspaceauth.NewAttributesBuilder().
+			Verb("member").
+			Resource(tenancyv1alpha1.SchemeGroupVersion.WithResource("clusterworkspaces"), "content").
+			Name(orgName).
+			AttributesRecord,
+	)
+	if !review.Includes(userInfo) {
+		return nil, kerrors.NewForbidden(tenancyv1beta1.Resource("workspaces"), "", fmt.Errorf("user %q is not allowed to create workspaces in organization %q", userInfo.GetName(), orgName))
 	}
 
-	ownerRoleBindingName := getRoleBindingName(OwnerRoleType, workspace.Name, user)
-	listerRoleBindingName := getRoleBindingName(ListerRoleType, workspace.Name, user)
+	ownerRoleBindingName := getRoleBindingName(OwnerRoleType, workspace.Name, userInfo)
+	listerRoleBindingName := getRoleBindingName(ListerRoleType, workspace.Name, userInfo)
 
 	// First create the ClusterRoleBinding that will link the workspace cluster role with the user Subject
 	// This is created with a name unique inside the user personal scope (pretty name + userName),
@@ -525,7 +529,7 @@ func (s *REST) Create(ctx context.Context, obj runtime.Object, createValidation 
 		Subjects: []rbacv1.Subject{
 			{
 				Kind:      "User",
-				Name:      user.GetName(),
+				Name:      userInfo.GetName(),
 				Namespace: "",
 			},
 		},
@@ -640,12 +644,13 @@ func (s *REST) Create(ctx context.Context, obj runtime.Object, createValidation 
 var _ = rest.GracefulDeleter(&REST{})
 
 func (s *REST) Delete(ctx context.Context, name string, deleteValidation rest.ValidateObjectFunc, options *metav1.DeleteOptions) (runtime.Object, bool, error) {
-	user, ok := apirequest.UserFrom(ctx)
+	userInfo, ok := apirequest.UserFrom(ctx)
 	if !ok {
 		return nil, false, kerrors.NewForbidden(tenancyv1beta1.Resource("workspaces"), "", fmt.Errorf("unable to delete a workspace without a user on the context"))
 	}
 
-	orgClusterName, org, err := s.extractOrg(user, ctx)
+	orgClusterName := ctx.Value(WorkspacesOrgKey).(string)
+	org, err := s.authorizeOrgForUser(orgClusterName, userInfo)
 	if err != nil {
 		return nil, false, err
 	}
@@ -653,7 +658,7 @@ func (s *REST) Delete(ctx context.Context, name string, deleteValidation rest.Va
 	internalName := name
 	if scope := ctx.Value(WorkspacesScopeKey); scope == PersonalScope {
 		var err error
-		internalName, err = s.getInternalNameFromPrettyName(user, orgClusterName, name)
+		internalName, err = s.getInternalNameFromPrettyName(userInfo, orgClusterName, name)
 		if err != nil {
 			if kerrors.IsNotFound(err) {
 				return nil, false, kerrors.NewNotFound(tenancyv1beta1.Resource("workspaces"), name)
@@ -662,11 +667,16 @@ func (s *REST) Delete(ctx context.Context, name string, deleteValidation rest.Va
 		}
 	}
 
-	if allowed, err := s.isUserAllowed(user, internalName, org.workspaceReviewerProvider.Create("delete", "clusterworkspaces", "workspace")); err != nil {
-		return nil, false, kerrors.NewForbidden(tenancyv1beta1.Resource("workspaces"), internalName, err)
-	} else if !allowed {
+	review := org.workspaceReviewer.Review(
+		workspaceauth.NewAttributesBuilder().
+			Verb("delete").
+			Resource(tenancyv1alpha1.SchemeGroupVersion.WithResource("clusterworkspaces"), "workspace").
+			Name(internalName).
+			AttributesRecord,
+	)
+	if !review.Includes(userInfo) {
 		_, orgName, _ := helper.ParseLogicalClusterName(orgClusterName)
-		return nil, false, kerrors.NewForbidden(tenancyv1beta1.Resource("workspaces"), internalName, fmt.Errorf("user %q is not allowed to delete workspace %q in organization %q", user.GetName(), internalName, orgName))
+		return nil, false, kerrors.NewForbidden(tenancyv1beta1.Resource("workspaces"), internalName, fmt.Errorf("user %q is not allowed to delete workspace %q in organization %q", userInfo.GetName(), internalName, orgName))
 	}
 
 	errorToReturn := org.clusterWorkspaceClient.Delete(ctx, internalName, *options)

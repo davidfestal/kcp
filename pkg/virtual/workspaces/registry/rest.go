@@ -53,7 +53,7 @@ import (
 )
 
 const (
-	OrganizationScope string = "all"
+	AllScope string = "all"
 	PersonalScope     string = "personal"
 	PrettyNameLabel   string = "workspaces.kcp.dev/pretty-name"
 	InternalNameLabel string = "workspaces.kcp.dev/internal-name"
@@ -61,7 +61,7 @@ const (
 	InternalNameIndex string = "workspace-internal-name"
 )
 
-var ScopeSet sets.String = sets.NewString(PersonalScope, OrganizationScope)
+var ScopeSet sets.String = sets.NewString(PersonalScope, AllScope)
 
 type WorkspacesScopeKeyType string
 

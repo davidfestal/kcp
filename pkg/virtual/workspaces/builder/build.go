@@ -83,7 +83,7 @@ func BuildVirtualWorkspace(rootPathPrefix string, wildcardsClusterWorkspaces wor
 				if len(segments) < 2 {
 					return
 				}
-				org, scope := segments[0], segments[1]
+				scope, org := segments[0], segments[1]
 				if !virtualworkspacesregistry.ScopeSet.Has(scope) {
 					return
 				}

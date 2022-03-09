@@ -219,7 +219,7 @@ func TestPrettyNameIndex(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:     user,
-			scope:    OrganizationScope,
+			scope:    AllScope,
 			orgName:  "orgName",
 			reviewer: workspaceauth.NewReviewer(nil),
 			clusterWorkspaces: []tenancyv1alpha1.ClusterWorkspace{
@@ -283,7 +283,7 @@ func TestInternalNameIndex(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:     user,
-			scope:    OrganizationScope,
+			scope:    AllScope,
 			orgName:  "orgName",
 			reviewer: workspaceauth.NewReviewer(nil),
 			clusterWorkspaces: []tenancyv1alpha1.ClusterWorkspace{
@@ -574,7 +574,7 @@ func TestListOrganizationWorkspaces(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:     user,
-			scope:    OrganizationScope,
+			scope:    AllScope,
 			orgName:  "orgName",
 			reviewer: workspaceauth.NewReviewer(nil),
 			rootReviewer: workspaceauth.NewReviewer(&mockSubjectLocator{
@@ -635,7 +635,7 @@ func TestListOrganizationWorkspacesWithPrettyName(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:     user,
-			scope:    OrganizationScope,
+			scope:    AllScope,
 			orgName:  "orgName",
 			reviewer: workspaceauth.NewReviewer(nil),
 			rootReviewer: workspaceauth.NewReviewer(&mockSubjectLocator{
@@ -896,7 +896,7 @@ func TestCreateWorkspaceInOrganizationNotAllowed(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:     user,
-			scope:    OrganizationScope,
+			scope:    AllScope,
 			orgName:  "orgName",
 			reviewer: workspaceauth.NewReviewer(nil),
 			rootReviewer: workspaceauth.NewReviewer(&mockSubjectLocator{
@@ -1731,7 +1731,7 @@ func TestDeleteWorkspaceForbiddenToUser(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:    user,
-			scope:   OrganizationScope,
+			scope:   AllScope,
 			orgName: "orgName",
 			reviewer: workspaceauth.NewReviewer(&mockSubjectLocator{
 				subjects: map[string]map[string][]rbacv1.Subject{
@@ -1945,7 +1945,7 @@ func TestDeleteWorkspaceByOrgAdmin(t *testing.T) {
 	test := TestDescription{
 		TestData: TestData{
 			user:    user,
-			scope:   OrganizationScope,
+			scope:   AllScope,
 			orgName: "orgName",
 			reviewer: workspaceauth.NewReviewer(&mockSubjectLocator{
 				subjects: map[string]map[string][]rbacv1.Subject{

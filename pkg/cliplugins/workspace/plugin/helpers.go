@@ -46,8 +46,8 @@ func prioritizedAuthInfo(values ...*api.AuthInfo) *api.AuthInfo {
 func extractScopeAndName(workspaceKey string) (string, string) {
 	if strings.HasPrefix(workspaceKey, registry.PersonalScope+"/") {
 		return registry.PersonalScope, strings.TrimPrefix(workspaceKey, registry.PersonalScope+"/")
-	} else if strings.HasPrefix(workspaceKey, registry.OrganizationScope+"/") {
-		return registry.OrganizationScope, strings.TrimPrefix(workspaceKey, registry.OrganizationScope+"/")
+	} else if strings.HasPrefix(workspaceKey, registry.AllScope+"/") {
+		return registry.AllScope, strings.TrimPrefix(workspaceKey, registry.AllScope+"/")
 	}
 	return "", workspaceKey
 }

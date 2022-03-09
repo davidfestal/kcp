@@ -133,7 +133,7 @@ func (kc *KubeConfig) ensureWorkspaceDirectoryContextExists(options *Options, pa
 			port = fmt.Sprintf(":%s", currentServerURL.Port())
 		}
 	}
-	workspaceDirectoryCluster.Server = fmt.Sprintf("%s://%s%s%s/%s/%s", currentServerURL.Scheme, currentServerURL.Hostname(), port, workspacebuilder.DefaultRootPathPrefix, orgClusterName, kc.scope)
+	workspaceDirectoryCluster.Server = fmt.Sprintf("%s://%s%s%s/%s/%s", currentServerURL.Scheme, currentServerURL.Hostname(), port, workspacebuilder.DefaultRootPathPrefix, kc.scope, orgClusterName)
 
 	kubectlOverrides := options.KubectlOverrides
 

@@ -50,7 +50,7 @@ func (o *WorkspacesSubCommandOptions) Description() virtualframeworkcmd.SubComma
 		Name:  "workspaces",
 		Use:   "workspaces",
 		Short: "Launch workspaces virtual workspace apiserver",
-		Long:  "Start a virtual workspace apiserver to managing personal, organizational or global workspaces",
+		Long:  "Start a virtual workspace apiserver to managing workspaces according to a given scope (all|personal)",
 	}
 }
 
@@ -66,7 +66,7 @@ func (o *WorkspacesSubCommandOptions) AddFlags(flags *pflag.FlagSet) {
 
 	flags.StringVar(&o.RootPathPrefix, "workspaces:root-path-prefix", builder.DefaultRootPathPrefix, ""+
 		"The prefix of the workspaces API server root path.\n"+
-		"The final workspaces API root path will be of the form:\n    <root-path-prefix>/<org-name>/personal|all")
+		"The final workspaces API root path will be of the form:\n    <root-path-prefix>/<personal|all>/<org-name>")
 }
 
 func (o *WorkspacesSubCommandOptions) Validate() []error {

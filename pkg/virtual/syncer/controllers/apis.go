@@ -145,7 +145,7 @@ func (c *APIReconciler) process(ctx context.Context, key string) error {
 		}
 	}
 
-	apiResourceInport, err := c.apiresourceImportLister.GetWithContext(ctx, key)
+	apiResourceImport, err := c.apiresourceImportLister.GetWithContext(ctx, key)
 	if errors.IsNotFound(err) {
 		delete()
 		return nil
@@ -153,20 +153,20 @@ func (c *APIReconciler) process(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	if !apiResourceInport.IsConditionTrue(apiresourcev1alpha1.Available) {
+	if !apiResourceImport.IsConditionTrue(apiresourcev1alpha1.Available) {
 		delete()
 		return nil
 	}
 
-	gv := apiResourceInport.Spec.CommonAPIResourceSpec.GroupVersion
-	r := apiResourceInport.Spec.CommonAPIResourceSpec.CustomResourceDefinitionNames.Plural
+	gv := apiResourceImport.Spec.CommonAPIResourceSpec.GroupVersion
+	r := apiResourceImport.Spec.CommonAPIResourceSpec.CustomResourceDefinitionNames.Plural
 	negotiatedAPIResourceName := r + "." + gv.Version + "."
 	if gv.Group == "" {
 		negotiatedAPIResourceName = negotiatedAPIResourceName + "core"
 	} else {
 		negotiatedAPIResourceName = negotiatedAPIResourceName + gv.Group
 	}
-	negotiatedAPIResource, err := c.negotiatedAPIResourceLister.Get(clusters.ToClusterAwareKey(apiResourceInport.ClusterName, negotiatedAPIResourceName))
+	negotiatedAPIResource, err := c.negotiatedAPIResourceLister.Get(clusters.ToClusterAwareKey(apiResourceImport.ClusterName, negotiatedAPIResourceName))
 	if errors.IsNotFound(err) {
 		delete()
 		return nil
@@ -183,9 +183,11 @@ func (c *APIReconciler) process(ctx context.Context, key string) error {
 	defer c.apiMutex.Unlock()
 
 	api := syncer.WorkloadClusterAPI{
-		WorkspaceName: apiResourceInport.ClusterName,
-		LocationName:  apiResourceInport.Spec.Location,
-		Spec:          (&negotiatedAPIResource.Spec.CommonAPIResourceSpec).DeepCopy(),
+		WorkloadCluster: syncer.WorkloadCluster{
+			WorkspaceName: apiResourceImport.ClusterName,
+			LocationName:  apiResourceImport.Spec.Location,
+		},
+		Spec: (&negotiatedAPIResource.Spec.CommonAPIResourceSpec).DeepCopy(),
 	}
 	c.workloadClusterAPIs[key] = api
 	return c.apiWatcher.Upsert(api)

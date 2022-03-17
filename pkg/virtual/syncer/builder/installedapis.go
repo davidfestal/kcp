@@ -43,27 +43,29 @@ func newInstalledAPIs(createAPIDefinition createAPIDefinitionFunc) *installedAPI
 	}
 }
 
-func (apis *installedAPIs) addLocation(locationName string) {
+func (apis *installedAPIs) addLocation(location syncer.WorkloadCluster) {
 	apis.mutex.Lock()
 	defer apis.mutex.Unlock()
 
-	if _, exists := apis.apiSets[locationName]; !exists {
-		apis.apiSets[locationName] = make(apidefs.APISet)
+	locationKey := location.Key()
+	if _, exists := apis.apiSets[locationKey]; !exists {
+		apis.apiSets[locationKey] = make(apidefs.APISet)
 	}
 }
 
-func (apis *installedAPIs) removeLocation(locationName string) {
+func (apis *installedAPIs) removeLocation(location syncer.WorkloadCluster) {
 	apis.mutex.Lock()
 	defer apis.mutex.Unlock()
 
-	delete(apis.apiSets, locationName)
+	locationKey := location.Key()
+	delete(apis.apiSets, locationKey)
 }
 
-func (apis *installedAPIs) GetAPIs(locationKey string) (apidefs.APISet, bool) {
+func (apis *installedAPIs) GetAPIs(apiDomainKey string) (apidefs.APISet, bool) {
 	apis.mutex.RLock()
 	defer apis.mutex.RUnlock()
 
-	apiSet, ok := apis.apiSets[locationKey]
+	apiSet, ok := apis.apiSets[apiDomainKey]
 	return apiSet, ok
 }
 
@@ -71,7 +73,7 @@ func (apis *installedAPIs) Upsert(api syncer.WorkloadClusterAPI) error {
 	apis.mutex.Lock()
 	defer apis.mutex.Unlock()
 
-	if locationAPIs, exists := apis.apiSets[api.LocationName]; !exists {
+	if locationAPIs, exists := apis.apiSets[api.Key()]; !exists {
 		return fmt.Errorf("workload cluster %q in workspace %q is unknown", api.LocationName, api.WorkspaceName)
 	} else {
 		gvr := schema.GroupVersionResource{
@@ -92,7 +94,7 @@ func (apis *installedAPIs) Remove(api syncer.WorkloadClusterAPI) error {
 	apis.mutex.Lock()
 	defer apis.mutex.Unlock()
 
-	if locationAPIs, exists := apis.apiSets[api.LocationName]; !exists {
+	if locationAPIs, exists := apis.apiSets[api.Key()]; !exists {
 		return fmt.Errorf("workload cluster %q in workspace %q is unknown", api.LocationName, api.WorkspaceName)
 	} else {
 		gvr := schema.GroupVersionResource{

@@ -31,6 +31,7 @@ import (
 	kcpclient "github.com/kcp-dev/kcp/pkg/client/clientset/versioned"
 	kcpinformer "github.com/kcp-dev/kcp/pkg/client/informers/externalversions"
 	"github.com/kcp-dev/kcp/pkg/virtual/framework"
+	"github.com/kcp-dev/kcp/pkg/virtual/syncer"
 	"github.com/kcp-dev/kcp/pkg/virtual/syncer/controllers"
 	virtualworkspacesdynamic "github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic"
 	apidefs "github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic/apidefs"
@@ -38,7 +39,6 @@ import (
 )
 
 const SyncerVirtualWorkspaceName string = "syncer"
-const DefaultRootPathPrefix string = "/services/syncer"
 
 func BuildVirtualWorkspace(rootPathPrefix string, dynamicClusterClient dynamic.ClusterInterface, kcpClusterClient kcpclient.ClusterInterface, wildcardKcpInformers kcpinformer.SharedInformerFactory) framework.VirtualWorkspace {
 
@@ -115,12 +115,18 @@ func BuildVirtualWorkspace(rootPathPrefix string, dynamicClusterClient dynamic.C
 			clusterInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 				AddFunc: func(obj interface{}) {
 					if location, ok := obj.(*workloadv1alpha1.WorkloadCluster); ok {
-						installedAPIs.addLocation(location.Name)
+						installedAPIs.addLocation(syncer.WorkloadCluster{
+							WorkspaceName: location.ClusterName,
+							LocationName:  location.Name,
+						})
 					}
 				},
 				DeleteFunc: func(obj interface{}) {
 					if location, ok := obj.(*workloadv1alpha1.WorkloadCluster); ok {
-						installedAPIs.removeLocation(location.Name)
+						installedAPIs.removeLocation(syncer.WorkloadCluster{
+							WorkspaceName: location.ClusterName,
+							LocationName:  location.Name,
+						})
 					}
 				},
 			})

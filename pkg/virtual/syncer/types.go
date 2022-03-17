@@ -20,10 +20,18 @@ import (
 	apiresourcev1alpha1 "github.com/kcp-dev/kcp/pkg/apis/apiresource/v1alpha1"
 )
 
-type WorkloadClusterAPI struct {
+type WorkloadCluster struct {
 	WorkspaceName string
 	LocationName  string
-	Spec          *apiresourcev1alpha1.CommonAPIResourceSpec
+}
+
+func (c WorkloadCluster) Key() string {
+	return c.WorkspaceName + "~~" + c.LocationName
+}
+
+type WorkloadClusterAPI struct {
+	WorkloadCluster
+	Spec *apiresourcev1alpha1.CommonAPIResourceSpec
 }
 
 type WorkloadClusterAPIWatcher interface {

@@ -36,6 +36,7 @@ import (
 	virtualworkspacesdynamic "github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic"
 	apidefs "github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic/apidefs"
 	"github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic/apiserver"
+	"github.com/kcp-dev/kcp/pkg/virtual/syncer/transforming"
 )
 
 const SyncerVirtualWorkspaceName string = "syncer"
@@ -105,10 +106,12 @@ func BuildVirtualWorkspace(rootPathPrefix string, dynamicClusterClient dynamic.C
 			apiResourceImportInformer := wildcardKcpInformers.Apiresource().V1alpha1().APIResourceImports()
 			negotiatedAPIResourceInformer := wildcardKcpInformers.Apiresource().V1alpha1().NegotiatedAPIResources()
 
+			genericTransformers := transforming.Transformers{
+				//				AddWorkloadClusterLabelSelector(),
+			}
+
 			installedAPIs = newInstalledAPIs(func(workspaceName string, spec *apiresourcev1alpha1.CommonAPIResourceSpec) (apidefs.APIDefinition, error) {
-				return apiserver.CreateServingInfoFor(mainConfig, workspaceName, spec, provideForwardingRestStorage(&clusterAwareClientGetter{
-					clusterInterface: dynamicClusterClient,
-				}))
+				return apiserver.CreateServingInfoFor(mainConfig, workspaceName, spec, provideForwardingRestStorage(dynamicClusterClient, genericTransformers))
 			})
 
 			// This should be replaced by a real controller when the URLs should be added to the WorkloadCluster object

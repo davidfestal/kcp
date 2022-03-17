@@ -29,6 +29,7 @@ import (
 
 	"github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic/apiserver"
 	"github.com/kcp-dev/kcp/pkg/virtual/syncer/registry"
+	"github.com/kcp-dev/kcp/pkg/virtual/syncer/transforming"
 )
 
 var _ registry.ClientGetter = (*clusterAwareClientGetter)(nil)
@@ -49,7 +50,7 @@ func (g *clusterAwareClientGetter) GetDynamicClient(ctx context.Context) (dynami
 	}
 }
 
-func provideForwardingRestStorage(dynamicClientGetter registry.ClientGetter) apiserver.RestProviderFunc {
+func provideForwardingRestStorage(dynamicClusterClient dynamic.ClusterInterface, transformers transforming.Transformers) apiserver.RestProviderFunc {
 	return func(resource schema.GroupVersionResource, kind schema.GroupVersionKind, listKind schema.GroupVersionKind, typer runtime.ObjectTyper, tableConvertor rest.TableConvertor, namespaceScoped bool, schemaValidator *validate.SchemaValidator, subresourcesSchemaValidator map[string]*validate.SchemaValidator, structuralSchema *structuralschema.Structural) (mainStorage rest.Storage, subresourceStorages map[string]rest.Storage) {
 		statusSchemaValidate, statusEnabled := subresourcesSchemaValidator["status"]
 		storage, statusStorage := registry.NewForwardingREST(
@@ -66,7 +67,10 @@ func provideForwardingRestStorage(dynamicClientGetter registry.ClientGetter) api
 				statusEnabled,
 			),
 			tableConvertor,
-			dynamicClientGetter,
+			&clusterAwareClientGetter{
+				clusterInterface: dynamicClusterClient,
+			},
+			transformers,
 		)
 		subresourceStorages = make(map[string]rest.Storage)
 		if statusEnabled {

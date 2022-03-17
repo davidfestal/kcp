@@ -33,6 +33,8 @@ import (
 	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/structured-merge-diff/v4/fieldpath"
+
+	"github.com/kcp-dev/kcp/pkg/virtual/syncer/transforming"
 )
 
 type ClientGetter interface {
@@ -55,6 +57,7 @@ type ForwardingREST struct {
 
 	clientGetter ClientGetter
 	subResources []string
+	transformers transforming.Transformers
 }
 
 var _ rest.Lister = &ForwardingREST{}
@@ -63,7 +66,7 @@ var _ rest.Getter = &ForwardingREST{}
 var _ rest.Updater = &ForwardingREST{}
 
 // NewForwardingREST returns a REST storage that forwards calls to a dynamic client
-func NewForwardingREST(resource schema.GroupVersionResource, kind, listKind schema.GroupVersionKind, strategy strategy, tableConvertor rest.TableConvertor, clientGetter ClientGetter) (*ForwardingREST, *StatusREST) {
+func NewForwardingREST(resource schema.GroupVersionResource, kind, listKind schema.GroupVersionKind, strategy strategy, tableConvertor rest.TableConvertor, clientGetter ClientGetter, transformers transforming.Transformers) (*ForwardingREST, *StatusREST) {
 	mainREST := &ForwardingREST{
 		createStrategy:      strategy,
 		updateStrategy:      strategy,
@@ -76,6 +79,7 @@ func NewForwardingREST(resource schema.GroupVersionResource, kind, listKind sche
 		listKind: listKind,
 
 		clientGetter: clientGetter,
+		transformers: transformers,
 	}
 	statusMainREST := *mainREST
 	statusMainREST.subResources = []string{"status"}
@@ -92,15 +96,20 @@ func (s *ForwardingREST) GetClientResource(ctx context.Context) (dynamic.Resourc
 		return nil, err
 	}
 
+	var resourceClient dynamic.ResourceInterface
 	if s.createStrategy.NamespaceScoped() {
 		if namespace, ok := genericapirequest.NamespaceFrom(ctx); ok {
-			return client.Resource(s.resource).Namespace(namespace), nil
+			resourceClient = client.Resource(s.resource).Namespace(namespace)
 		} else {
 			return nil, errors.New("Strange: there should be a Namespace context")
 		}
 	} else {
-		return client.Resource(s.resource), nil
+		resourceClient = client.Resource(s.resource)
 	}
+	return &transforming.TransformingClient{
+		Transformations: s.transformers,
+		Client:          resourceClient,
+	}, nil
 }
 
 // New returns a new Workspace

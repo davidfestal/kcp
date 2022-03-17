@@ -17,7 +17,12 @@ limitations under the License.
 package syncer
 
 import (
+	"context"
+	"errors"
+	"strings"
+
 	apiresourcev1alpha1 "github.com/kcp-dev/kcp/pkg/apis/apiresource/v1alpha1"
+	apidefs "github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic/apidefs"
 )
 
 const SyncerFinalizer string = "workloads.kcp.dev/syncer"
@@ -43,4 +48,16 @@ type WorkloadClusterAPI struct {
 type WorkloadClusterAPIWatcher interface {
 	Upsert(api WorkloadClusterAPI) error
 	Remove(api WorkloadClusterAPI) error
+}
+
+func FromContext(ctx context.Context) (WorkloadCluster, error) {
+	var result WorkloadCluster
+	locationKey := ctx.Value(apidefs.APIDomainKeyContextKey).(string)
+	parts := strings.SplitN(locationKey, "~~", 2)
+	if len(parts) != 2 {
+		return result, errors.New("locationKey should contain 2 strings separated by '~~'")
+	}
+	result.WorkspaceName = parts[0]
+	result.LocationName = parts[1]
+	return result, nil
 }

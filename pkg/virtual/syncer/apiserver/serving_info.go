@@ -30,6 +30,7 @@ import (
 
 	structuralpruning "k8s.io/apiextensions-apiserver/pkg/apiserver/schema/pruning"
 	apiservervalidation "k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
+	"k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder"
 	"k8s.io/apiextensions-apiserver/pkg/crdserverscheme"
 	"k8s.io/apiextensions-apiserver/pkg/registry/customresource/tableconvertor"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -44,12 +45,16 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apiserver/pkg/endpoints/handlers"
 	"k8s.io/apiserver/pkg/endpoints/handlers/fieldmanager"
+	"k8s.io/apiserver/pkg/endpoints/openapi"
+	"k8s.io/apiserver/pkg/features"
 	"k8s.io/apiserver/pkg/registry/generic"
 	genericregistry "k8s.io/apiserver/pkg/registry/generic/registry"
 	"k8s.io/apiserver/pkg/registry/rest"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	"k8s.io/apiserver/pkg/storage/storagebackend"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	flowcontrolrequest "k8s.io/apiserver/pkg/util/flowcontrol/request"
+	utilopenapi "k8s.io/apiserver/pkg/util/openapi"
 	klog "k8s.io/klog/v2"
 	"k8s.io/kube-openapi/pkg/validation/spec"
 	"k8s.io/kube-openapi/pkg/validation/strfmt"
@@ -128,30 +133,34 @@ func CreateServingInfoFor(genericConfig genericapiserver.CompletedConfig, logica
 		return nil, fmt.Errorf("the server could not properly serve the CR schema") // validation should avoid this
 	}
 
-	/*
-		TODO: restore if necessary
+	resource := schema.GroupVersionResource{Group: apiResourceSpec.GroupVersion.Group, Version: apiResourceSpec.GroupVersion.Version, Resource: apiResourceSpec.Plural}
+	kind := schema.GroupVersionKind{Group: apiResourceSpec.GroupVersion.Group, Version: apiResourceSpec.GroupVersion.Version, Kind: apiResourceSpec.Kind}
 
-		openAPIModels, err := buildOpenAPIModelsForApply(r.staticOpenAPISpec, crd)
-		var modelsByGKV openapi.ModelsByGKV
+	s, err := BuildOpenAPIV2(apiResourceSpec, builder.Options{V2: true, SkipFilterSchemaForKubectlOpenAPIV2Validation: true, StripValueValidation: true, StripNullable: true, AllowNonStructural: false})
+	if err != nil {
+		return nil, err
+	}
+	openAPIModels, err := utilopenapi.ToProtoModels(s)
 
+	var modelsByGKV openapi.ModelsByGKV
+
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("error building openapi models for %s: %w", kind.String(), err))
+		openAPIModels = nil
+	} else {
+		modelsByGKV, err = openapi.GetModelsByGKV(openAPIModels)
 		if err != nil {
-			utilruntime.HandleError(fmt.Errorf("error building openapi models for %s: %v", crd.Name, err))
-			openAPIModels = nil
-		} else {
-			modelsByGKV, err = openapi.GetModelsByGKV(openAPIModels)
-			if err != nil {
-				utilruntime.HandleError(fmt.Errorf("error gathering openapi models by GKV for %s: %v", crd.Name, err))
-				modelsByGKV = nil
-			}
+			utilruntime.HandleError(fmt.Errorf("error gathering openapi models by GKV for %s: %w", kind.String(), err))
+			modelsByGKV = nil
 		}
-		var typeConverter fieldmanager.TypeConverter = fieldmanager.DeducedTypeConverter{}
-		if openAPIModels != nil {
-			typeConverter, err = fieldmanager.NewTypeConverter(openAPIModels, crd.Spec.PreserveUnknownFields)
-			if err != nil {
-				return nil, err
-			}
+	}
+	var typeConverter fieldmanager.TypeConverter = fieldmanager.DeducedTypeConverter{}
+	if openAPIModels != nil {
+		typeConverter, err = fieldmanager.NewTypeConverter(openAPIModels, false)
+		if err != nil {
+			return nil, err
 		}
-	*/
+	}
 
 	safeConverter, unsafeConverter := &nopConverter{}, &nopConverter{}
 	if err != nil {
@@ -168,8 +177,6 @@ func CreateServingInfoFor(genericConfig genericapiserver.CompletedConfig, logica
 	)
 	parameterCodec := runtime.NewParameterCodec(parameterScheme)
 
-	resource := schema.GroupVersionResource{Group: apiResourceSpec.GroupVersion.Group, Version: apiResourceSpec.GroupVersion.Version, Resource: apiResourceSpec.Plural}
-	kind := schema.GroupVersionKind{Group: apiResourceSpec.GroupVersion.Group, Version: apiResourceSpec.GroupVersion.Version, Kind: apiResourceSpec.Kind}
 	equivalentResourceRegistry.RegisterKindFor(resource, "", kind)
 
 	typer := NewUnstructuredObjectTyper(parameterScheme)
@@ -270,7 +277,7 @@ func CreateServingInfoFor(genericConfig genericapiserver.CompletedConfig, logica
 
 		EquivalentResourceMapper: equivalentResourceRegistry,
 
-		Resource: schema.GroupVersionResource{Group: apiResourceSpec.GroupVersion.Group, Version: apiResourceSpec.GroupVersion.Version, Resource: apiResourceSpec.Plural},
+		Resource: resource,
 		Kind:     kind,
 
 		// a handler for a specific group-version of a custom resource uses that version as the in-memory representation
@@ -284,10 +291,27 @@ func CreateServingInfoFor(genericConfig genericapiserver.CompletedConfig, logica
 
 		MaxRequestBodyBytes: genericConfig.MaxRequestBodyBytes,
 
-		OpenapiModels: nil, // TODO ?
+		OpenapiModels: modelsByGKV,
 	}
 
-	// TODO: restore the serversideapply stuff here ??
+	if utilfeature.DefaultFeatureGate.Enabled(features.ServerSideApply) {
+		if withResetFields, canGetResetFields := rest.Storage(storage).(rest.ResetFieldsStrategy); canGetResetFields {
+			resetFields := withResetFields.GetResetFields()
+			reqScope := *requestScope
+			reqScope, err = scopeWithFieldManager(
+				typeConverter,
+				reqScope,
+				resetFields,
+				"",
+			)
+			if err != nil {
+				return nil, err
+			}
+			requestScope = &reqScope
+		} else {
+			return nil, fmt.Errorf("storage for resource %q should define GetResetFields", kind.String())
+		}
+	}
 
 	// shallow copy
 	statusScope := *requestScope
@@ -299,7 +323,22 @@ func CreateServingInfoFor(genericConfig genericapiserver.CompletedConfig, logica
 		SelfLinkPathSuffix: "/status",
 	}
 
-	// TODO: restore the serversideapply stuff for status here ??
+	if utilfeature.DefaultFeatureGate.Enabled(features.ServerSideApply) {
+		if withResetFields, canGetResetFields := rest.Storage(statusStorage).(rest.ResetFieldsStrategy); canGetResetFields {
+			resetFields := withResetFields.GetResetFields()
+			statusScope, err = scopeWithFieldManager(
+				typeConverter,
+				statusScope,
+				resetFields,
+				"status",
+			)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("storage for resource %q status should define GetResetFields", kind.String())
+		}
+	}
 
 	ret := &servingInfo{
 		logicalClusterName: logicalClusterName,
@@ -655,4 +694,42 @@ func (v *unstructuredSchemaCoercer) apply(u *unstructured.Unstructured) (unknown
 	}
 
 	return unknownFieldPaths, nil
+}
+
+// BuildOpenAPIV2 builds OpenAPI v2 for the given apiResourceSpec
+func BuildOpenAPIV2(apiResourceSpec *apiresourcev1alpha1.CommonAPIResourceSpec, opts builder.Options) (*spec.Swagger, error) {
+	version := apiResourceSpec.GroupVersion.Version
+	schema, err := apiResourceSpec.GetSchema()
+	if err != nil {
+		return nil, err
+	}
+	var subResources apiextensionsv1.CustomResourceSubresources
+	for _, subResource := range apiResourceSpec.SubResources {
+		if subResource.Name == "scale" {
+			subResources.Scale = &apiextensionsv1.CustomResourceSubresourceScale{
+				SpecReplicasPath:   ".spec.replicas",
+				StatusReplicasPath: ".status.replicas",
+			}
+		}
+		if subResource.Name == "status" {
+			subResources.Status = &apiextensionsv1.CustomResourceSubresourceStatus{}
+		}
+	}
+	crd := &apiextensionsv1.CustomResourceDefinition{
+		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+			Group: apiResourceSpec.GroupVersion.Group,
+			Names: apiResourceSpec.CustomResourceDefinitionNames,
+			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
+				{
+					Name: version,
+					Schema: &apiextensionsv1.CustomResourceValidation{
+						OpenAPIV3Schema: schema,
+					},
+					Subresources: &subResources,
+				},
+			},
+			Scope: apiResourceSpec.Scope,
+		},
+	}
+	return builder.BuildOpenAPIV2(crd, version, opts)
 }

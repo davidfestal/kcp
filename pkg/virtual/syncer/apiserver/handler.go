@@ -30,10 +30,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/apimachinery/pkg/runtime/serializer/protobuf"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/admission"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
+	"k8s.io/apiserver/pkg/features"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 
 	//	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apiserver/pkg/endpoints/handlers"
@@ -169,38 +172,36 @@ func (r *resourceHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	subresource := requestInfo.Subresource
 	scope := metrics.CleanScope(requestInfo)
 	supportedTypes := []string{
-		//		string(types.JSONPatchType),
-		//		string(types.MergePatchType),
+		string(types.JSONPatchType),
+		string(types.MergePatchType),
 	}
 
-	/*
-
-		// HACK: Support resources of the client-go scheme the way existing clients expect it:
-		//   - Support Strategic Merge Patch (used by default on these resources by kubectl)
-		//   - Support the Protobuf content type on Create / Update resources
-		//     (by simply converting the request to the json content type),
-		//     since protobuf content type is expected to be supported in a number of client
-		//     contexts (like controller-runtime for example)
-		if clientgoscheme.Scheme.IsGroupRegistered(requestInfo.APIGroup) {
-			supportedTypes = append(supportedTypes, string(types.StrategicMergePatchType))
-			req, err := convertProtobufRequestsToJson(verb, req, schema.GroupVersionKind{
-				Group:   requestInfo.APIGroup,
-				Version: requestInfo.APIVersion,
-				Kind:    apiResourceSpec.Kind,
-			})
-			if err != nil {
-				responsewriters.ErrorNegotiated(
-					apierrors.NewInternalError(err),
-					Codecs, schema.GroupVersion{Group: requestInfo.APIGroup, Version: requestInfo.APIVersion}, w, req,
-				)
-				return
-			}
+	// HACK: Support resources of the client-go scheme the way existing clients expect it:
+	//   - Support Strategic Merge Patch (used by default on these resources by kubectl)
+	//   - Support the Protobuf content type on Create / Update resources
+	//     (by simply converting the request to the json content type),
+	//     since protobuf content type is expected to be supported in a number of client
+	//     contexts (like controller-runtime for example)
+	if clientgoscheme.Scheme.IsGroupRegistered(requestInfo.APIGroup) {
+		supportedTypes = append(supportedTypes, string(types.StrategicMergePatchType))
+		req, err := convertProtobufRequestsToJson(verb, req, schema.GroupVersionKind{
+			Group:   requestInfo.APIGroup,
+			Version: requestInfo.APIVersion,
+			Kind:    apiResourceSpec.Kind,
+		})
+		if err != nil {
+			responsewriters.ErrorNegotiated(
+				apierrors.NewInternalError(err),
+				Codecs, schema.GroupVersion{Group: requestInfo.APIGroup, Version: requestInfo.APIVersion}, w, req,
+			)
+			return
 		}
+	}
 
-		if utilfeature.DefaultFeatureGate.Enabled(features.ServerSideApply) {
-			supportedTypes = append(supportedTypes, string(types.ApplyPatchType))
-		}
-	*/
+	if utilfeature.DefaultFeatureGate.Enabled(features.ServerSideApply) {
+		supportedTypes = append(supportedTypes, string(types.ApplyPatchType))
+	}
+
 	var handlerFunc http.HandlerFunc
 	subresources := apiResourceSpec.SubResources
 	switch {

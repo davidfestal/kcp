@@ -39,7 +39,7 @@ type APIDefinition interface {
 type APISet map[schema.GroupVersionResource]APIDefinition
 
 type APISetRetriever interface {
-	GetAPIs(locationKey string) APISet
+	GetAPIs(locationKey string) (apis APISet, locationExists bool)
 }
 
 type WorkloadClusterAPI struct {

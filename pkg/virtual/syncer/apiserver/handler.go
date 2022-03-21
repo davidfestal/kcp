@@ -35,22 +35,18 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/admission"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
-	"k8s.io/apiserver/pkg/features"
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
-
-	//	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apiserver/pkg/endpoints/handlers"
 	"k8s.io/apiserver/pkg/endpoints/handlers/responsewriters"
 	"k8s.io/apiserver/pkg/endpoints/metrics"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/features"
 	"k8s.io/apiserver/pkg/registry/rest"
 	genericfilters "k8s.io/apiserver/pkg/server/filters"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 
 	syncer "github.com/kcp-dev/kcp/pkg/virtual/syncer"
 	"github.com/kcp-dev/kcp/pkg/virtual/syncer/registry"
-	//	"k8s.io/apiserver/pkg/features"
-	//	utilfeature "k8s.io/apiserver/pkg/util/feature"
 )
 
 // resourceHandler serves the `/apis` endpoint.
@@ -152,7 +148,7 @@ func (r *resourceHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	locationKey := ctx.Value(registry.LocationKeyContextKey).(string)
 
-	apiDefs := r.apiSetRetriever.GetAPIs(locationKey)
+	apiDefs, _ := r.apiSetRetriever.GetAPIs(locationKey)
 	apiDef, exists := apiDefs[schema.GroupVersionResource{
 		Group:    requestInfo.APIGroup,
 		Version:  requestInfo.APIVersion,

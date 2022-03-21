@@ -55,7 +55,7 @@ func (r *versionDiscoveryHandler) ServeHTTP(w http.ResponseWriter, req *http.Req
 
 	locationKey := ctx.Value(registry.LocationKeyContextKey).(string)
 
-	apiSet := r.apiSetRetriever.GetAPIs(locationKey)
+	apiSet, _ := r.apiSetRetriever.GetAPIs(locationKey)
 
 	apiResources := APIResourcesForGroupVersion(requestedGroup, requestedVersion, apiSet)
 
@@ -136,7 +136,7 @@ func (r *groupDiscoveryHandler) ServeHTTP(w http.ResponseWriter, req *http.Reque
 
 	locationKey := ctx.Value(registry.LocationKeyContextKey).(string)
 
-	apiSet := r.apiSetRetriever.GetAPIs(locationKey)
+	apiSet, _ := r.apiSetRetriever.GetAPIs(locationKey)
 
 	foundGroup := false
 
@@ -191,7 +191,7 @@ func (r *rootDiscoveryHandler) ServeHTTP(w http.ResponseWriter, req *http.Reques
 	ctx := req.Context()
 	locationKey := ctx.Value(registry.LocationKeyContextKey).(string)
 
-	apiSet := r.apiSetRetriever.GetAPIs(locationKey)
+	apiSet, _ := r.apiSetRetriever.GetAPIs(locationKey)
 
 	for gvr, _ := range apiSet {
 

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metainternal "k8s.io/apimachinery/pkg/apis/meta/internalversion"
 	metainternalversion "k8s.io/apimachinery/pkg/apis/meta/internalversion"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,8 +33,6 @@ import (
 	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/structured-merge-diff/v4/fieldpath"
-
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
 
 	syncer "github.com/kcp-dev/kcp/pkg/virtual/syncer"
 )

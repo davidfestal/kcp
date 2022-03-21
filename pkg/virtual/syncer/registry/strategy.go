@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	apiserverstorage "k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/kube-openapi/pkg/validation/validate"
 	"sigs.k8s.io/structured-merge-diff/v4/fieldpath"
@@ -152,7 +151,7 @@ func copyNonMetadata(original map[string]interface{}) map[string]interface{} {
 // Validate validates a new workspace.
 func (s strategy) Validate(ctx context.Context, obj runtime.Object) field.ErrorList {
 	var errs field.ErrorList
-	errs = append(errs, s.validator.Validate(ctx, obj, nil)...)
+	errs = append(errs, s.validator.Validate(ctx, obj)...)
 
 	// validate embedded resources
 	if u, ok := obj.(*unstructured.Unstructured); ok {
@@ -188,7 +187,7 @@ func (strategy) Canonicalize(obj runtime.Object) {
 // ValidateUpdate is the default update validation for an end user.
 func (s strategy) ValidateUpdate(ctx context.Context, obj, old runtime.Object) field.ErrorList {
 	var errs field.ErrorList
-	errs = append(errs, s.validator.ValidateUpdate(ctx, obj, old, nil)...)
+	errs = append(errs, s.validator.ValidateUpdate(ctx, obj, old)...)
 
 	uNew, ok := obj.(*unstructured.Unstructured)
 	if !ok {
@@ -234,16 +233,5 @@ func objectMetaFieldsSet(objectMeta metav1.Object, namespaceScoped bool) fields.
 	}
 	return fields.Set{
 		"metadata.name": objectMeta.GetName(),
-	}
-}
-
-// MatchCustomResourceDefinitionStorage is the filter used by the generic etcd backend to route
-// watch events from etcd to clients of the apiserver only interested in specific
-// labels/fields.
-func (a strategy) MatchCustomResourceDefinitionStorage(label labels.Selector, field fields.Selector) apiserverstorage.SelectionPredicate {
-	return apiserverstorage.SelectionPredicate{
-		Label:    label,
-		Field:    field,
-		GetAttrs: a.GetAttrs,
 	}
 }

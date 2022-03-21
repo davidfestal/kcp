@@ -14,33 +14,30 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package builder
+package dynamic
 
 import (
 	genericapiserver "k8s.io/apiserver/pkg/server"
 
-	"github.com/kcp-dev/kcp/pkg/virtual/syncer/apiserver"
+	"github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic/apiserver"
 )
 
-func (vw *SyncerVirtualWorkspace) Register(rootAPIServerConfig genericapiserver.CompletedConfig, delegateAPIServer genericapiserver.DelegationTarget) (genericapiserver.DelegationTarget, error) {
-	// TODO: build the main APIServer based on:
-	// - the config here
-	// - the `APISetRetriever`s that will be built by the initialization (including the cluster controller, etc, etc)
-
-	if err := vw.BootstrapAPISetManager(rootAPIServerConfig); err != nil {
+func (vw *DynamicVirtualWorkspace) Register(rootAPIServerConfig genericapiserver.CompletedConfig, delegateAPIServer genericapiserver.DelegationTarget) (genericapiserver.DelegationTarget, error) {
+	apiSetRetriever, err := vw.BootstrapAPISetManagement(rootAPIServerConfig)
+	if err != nil {
 		return nil, err
 	}
 
 	cfg := &apiserver.DynamicAPIServerConfig{
 		GenericConfig: &genericapiserver.RecommendedConfig{Config: *rootAPIServerConfig.Config, SharedInformerFactory: rootAPIServerConfig.SharedInformerFactory},
 		ExtraConfig: apiserver.DynamicAPIServerExtraConfig{
-			APISetRetriever: vw.apiSets,
+			APISetRetriever: apiSetRetriever,
 		},
 	}
 
-	// We don't want any poststart hooks at the level of a GroupVersionAPIServer.
+	// We don't want any poststart hooks at the level of a DynamicAPIServer.
 	// In the current design, PostStartHooks are only added at the top level RootAPIServer.
-	// So let's drop the PostStartHooks from the GroupVersionAPIServerConfig since they are simply copied
+	// So let's drop the PostStartHooks from the DynamicAPIServerConfig since they are simply copied
 	// from the RootAPIServerConfig
 	cfg.GenericConfig.PostStartHooks = map[string]genericapiserver.PostStartHookConfigEntry{}
 	config := cfg.Complete()

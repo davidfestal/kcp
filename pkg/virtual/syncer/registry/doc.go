@@ -14,19 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package syncer
-
-import (
-	apiresourcev1alpha1 "github.com/kcp-dev/kcp/pkg/apis/apiresource/v1alpha1"
-)
-
-type WorkloadClusterAPI struct {
-	WorkspaceName string
-	LocationName  string
-	Spec          *apiresourcev1alpha1.CommonAPIResourceSpec
-}
-
-type WorkloadClusterAPIWatcher interface {
-	Upsert(api WorkloadClusterAPI) error
-	Remove(api WorkloadClusterAPI) error
-}
+// Package provides provides a CRD-like REST storage implementation that can dynamically serve resources based
+// on a given OpenAPI schema, and forward the requests to a KCP workspace-aware delegate client.
+//
+// Part of this package are highly insired from kcp-dev/kubernetes/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver
+// https://github.com/kcp-dev/kubernetes/tree/feature-logical-clusters-1.23/staging/src/k8s.io/apiextensions-apiserver/pkg/registry
+package registry

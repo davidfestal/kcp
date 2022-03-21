@@ -19,11 +19,10 @@ package apiserver
 import (
 	"fmt"
 	"path"
-	"strings"
-	"time"
 
 	apiextensionsinternal "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiextensionsapiserver "k8s.io/apiextensions-apiserver/pkg/apiserver"
 	structuralschema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
 	structuraldefaulting "k8s.io/apiextensions-apiserver/pkg/apiserver/schema/defaulting"
 	schemaobjectmeta "k8s.io/apiextensions-apiserver/pkg/apiserver/schema/objectmeta"
@@ -31,7 +30,6 @@ import (
 	structuralpruning "k8s.io/apiextensions-apiserver/pkg/apiserver/schema/pruning"
 	apiservervalidation "k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
 	"k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder"
-	"k8s.io/apiextensions-apiserver/pkg/crdserverscheme"
 	"k8s.io/apiextensions-apiserver/pkg/registry/customresource/tableconvertor"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -47,13 +45,9 @@ import (
 	"k8s.io/apiserver/pkg/endpoints/handlers/fieldmanager"
 	"k8s.io/apiserver/pkg/endpoints/openapi"
 	"k8s.io/apiserver/pkg/features"
-	"k8s.io/apiserver/pkg/registry/generic"
-	genericregistry "k8s.io/apiserver/pkg/registry/generic/registry"
 	"k8s.io/apiserver/pkg/registry/rest"
 	genericapiserver "k8s.io/apiserver/pkg/server"
-	"k8s.io/apiserver/pkg/storage/storagebackend"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	flowcontrolrequest "k8s.io/apiserver/pkg/util/flowcontrol/request"
 	utilopenapi "k8s.io/apiserver/pkg/util/openapi"
 	klog "k8s.io/klog/v2"
 	"k8s.io/kube-openapi/pkg/validation/spec"
@@ -62,9 +56,10 @@ import (
 	"sigs.k8s.io/structured-merge-diff/v4/fieldpath"
 
 	apiresourcev1alpha1 "github.com/kcp-dev/kcp/pkg/apis/apiresource/v1alpha1"
-	syncer "github.com/kcp-dev/kcp/pkg/virtual/syncer"
-	"github.com/kcp-dev/kcp/pkg/virtual/syncer/registry"
+	apidefs "github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic/apidefs"
 )
+
+var _ apidefs.APIDefinition = (*servingInfo)(nil)
 
 // servingInfo stores enough information to serve the storage for the apiResourceSpec
 type servingInfo struct {
@@ -74,12 +69,11 @@ type servingInfo struct {
 	storage       rest.Storage
 	statusStorage rest.Storage
 
-	requestScope *handlers.RequestScope
-
+	requestScope       *handlers.RequestScope
 	statusRequestScope *handlers.RequestScope
 }
 
-var _ syncer.APIDefinition = (*servingInfo)(nil)
+// Implement APIDefinition interface
 
 func (apiDef *servingInfo) GetAPIResourceSpec() *apiresourcev1alpha1.CommonAPIResourceSpec {
 	return apiDef.apiResourceSpec
@@ -106,7 +100,9 @@ func (apiDef *servingInfo) GetSubResourceRequestScope(subresource string) *handl
 	return nil
 }
 
-func CreateServingInfoFor(genericConfig genericapiserver.CompletedConfig, logicalClusterName string, apiResourceSpec *apiresourcev1alpha1.CommonAPIResourceSpec, dynamicClientGetter syncer.ClientGetter) (*servingInfo, error) {
+type RestProviderFunc func(resource schema.GroupVersionResource, kind schema.GroupVersionKind, listKind schema.GroupVersionKind, typer runtime.ObjectTyper, tableConvertor rest.TableConvertor, namespaceScoped bool, schemaValidator *validate.SchemaValidator, subresourcesSchemaValidator map[string]*validate.SchemaValidator, structuralSchema *structuralschema.Structural) (mainStorage rest.Storage, subresourceStorages map[string]rest.Storage)
+
+func CreateServingInfoFor(genericConfig genericapiserver.CompletedConfig, logicalClusterName string, apiResourceSpec *apiresourcev1alpha1.CommonAPIResourceSpec, restProvider RestProviderFunc) (apidefs.APIDefinition, error) {
 	equivalentResourceRegistry := runtime.NewEquivalentResourceRegistry()
 
 	v1OpenAPISchema, err := apiResourceSpec.GetSchema()
@@ -115,12 +111,12 @@ func CreateServingInfoFor(genericConfig genericapiserver.CompletedConfig, logica
 	}
 	internalSchema := &apiextensionsinternal.JSONSchemaProps{}
 	if err := apiextensionsv1.Convert_v1_JSONSchemaProps_To_apiextensions_JSONSchemaProps(v1OpenAPISchema, internalSchema, nil); err != nil {
-		return nil, fmt.Errorf("failed converting CRD validation to internal version: %v", err)
+		return nil, fmt.Errorf("failed converting CRD validation to internal version: %w", err)
 	}
 	structuralSchema, err := structuralschema.NewStructural(internalSchema)
 	if err != nil {
 		// This should never happen. If it does, it is a programming error.
-		utilruntime.HandleError(fmt.Errorf("failed to convert schema to structural: %v", err))
+		utilruntime.HandleError(fmt.Errorf("failed to convert schema to structural: %w", err))
 		return nil, fmt.Errorf("the server could not properly serve the CR schema") // validation should avoid this
 	}
 
@@ -129,12 +125,13 @@ func CreateServingInfoFor(genericConfig genericapiserver.CompletedConfig, logica
 
 	if err := structuraldefaulting.PruneDefaults(structuralSchema); err != nil {
 		// This should never happen. If it does, it is a programming error.
-		utilruntime.HandleError(fmt.Errorf("failed to prune defaults: %v", err))
+		utilruntime.HandleError(fmt.Errorf("failed to prune defaults: %w", err))
 		return nil, fmt.Errorf("the server could not properly serve the CR schema") // validation should avoid this
 	}
 
 	resource := schema.GroupVersionResource{Group: apiResourceSpec.GroupVersion.Group, Version: apiResourceSpec.GroupVersion.Version, Resource: apiResourceSpec.Plural}
 	kind := schema.GroupVersionKind{Group: apiResourceSpec.GroupVersion.Group, Version: apiResourceSpec.GroupVersion.Version, Kind: apiResourceSpec.Kind}
+	listKind := schema.GroupVersionKind{Group: apiResourceSpec.GroupVersion.Group, Version: apiResourceSpec.GroupVersion.Version, Kind: apiResourceSpec.ListKind}
 
 	s, err := BuildOpenAPIV2(apiResourceSpec, builder.Options{V2: true, SkipFilterSchemaForKubectlOpenAPIV2Validation: true, StripValueValidation: true, StripNullable: true, AllowNonStructural: false})
 	if err != nil {
@@ -179,8 +176,8 @@ func CreateServingInfoFor(genericConfig genericapiserver.CompletedConfig, logica
 
 	equivalentResourceRegistry.RegisterKindFor(resource, "", kind)
 
-	typer := NewUnstructuredObjectTyper(parameterScheme)
-	creator := UnstructuredCreator{}
+	typer := apiextensionsapiserver.NewUnstructuredObjectTyper(parameterScheme)
+	creator := apiextensionsapiserver.UnstructuredCreator{}
 
 	internalValidationSchema := &apiextensionsinternal.CustomResourceValidation{
 		OpenAPIV3Schema: internalSchema,
@@ -190,9 +187,10 @@ func CreateServingInfoFor(genericConfig genericapiserver.CompletedConfig, logica
 		return nil, err
 	}
 
-	var statusValidator *validate.SchemaValidator
-	subresources := apiResourceSpec.SubResources
-	if subresources != nil && subresources.Contains("status") {
+	subResourcesValidators := map[string]*validate.SchemaValidator{}
+
+	if subresources := apiResourceSpec.SubResources; subresources != nil && subresources.Contains("status") {
+		var statusValidator *validate.SchemaValidator
 		equivalentResourceRegistry.RegisterKindFor(resource, "status", kind)
 		// for the status subresource, validate only against the status schema
 		if internalValidationSchema != nil && internalValidationSchema.OpenAPIV3Schema != nil && internalValidationSchema.OpenAPIV3Schema.Properties != nil {
@@ -204,6 +202,7 @@ func CreateServingInfoFor(genericConfig genericapiserver.CompletedConfig, logica
 				statusValidator = validate.NewSchemaValidator(openapiSchema, nil, "", strfmt.Default)
 			}
 		}
+		subResourcesValidators["status"] = statusValidator
 	}
 
 	table, err := tableconvertor.New(apiResourceSpec.ColumnDefinitions.ToCustomResourceColumnDefinitions())
@@ -211,21 +210,16 @@ func CreateServingInfoFor(genericConfig genericapiserver.CompletedConfig, logica
 		klog.V(2).Infof("The CRD for %v has an invalid printer specification, falling back to default printing: %v", kind, err)
 	}
 
-	storage, statusStorage := registry.NewREST(
+	storage, subresourceStorages := restProvider(
 		resource,
 		kind,
-		schema.GroupVersionKind{Group: apiResourceSpec.GroupVersion.Group, Version: apiResourceSpec.GroupVersion.Version, Kind: apiResourceSpec.ListKind},
-		registry.NewStrategy(
-			typer,
-			apiResourceSpec.Scope == apiextensionsv1.NamespaceScoped,
-			kind,
-			validator,
-			statusValidator,
-			structuralSchema,
-			subresources.Contains("status"),
-		),
+		listKind,
+		typer,
 		table,
-		dynamicClientGetter,
+		apiResourceSpec.Scope == apiextensionsv1.NamespaceScoped,
+		validator,
+		subResourcesValidators,
+		structuralSchema,
 	)
 
 	selfLinkPrefixPrefix := path.Join("apis", apiResourceSpec.GroupVersion.Group, apiResourceSpec.GroupVersion.Version)
@@ -242,7 +236,7 @@ func CreateServingInfoFor(genericConfig genericapiserver.CompletedConfig, logica
 
 	clusterScoped := apiResourceSpec.Scope == apiextensionsv1.ClusterScoped
 
-	// CRDs explicitly do not support protobuf, but some objects returned by the API server dos[v.Name]
+	// CRDs explicitly do not support protobuf, but some objects returned by the API server do
 	negotiatedSerializer := unstructuredNegotiatedSerializer{
 		typer:                 typer,
 		creator:               creator,
@@ -265,37 +259,27 @@ func CreateServingInfoFor(genericConfig genericapiserver.CompletedConfig, logica
 			ClusterScoped:      clusterScoped,
 			SelfLinkPathPrefix: selfLinkPrefix,
 		},
-		Serializer:          negotiatedSerializer,
-		ParameterCodec:      parameterCodec,
-		StandardSerializers: standardSerializers,
-
-		Creater:         creator,
-		Convertor:       safeConverter,
-		Defaulter:       unstructuredDefaulter{parameterScheme, structuralSchema, kind},
-		Typer:           typer,
-		UnsafeConvertor: unsafeConverter,
-
+		Serializer:               negotiatedSerializer,
+		ParameterCodec:           parameterCodec,
+		StandardSerializers:      standardSerializers,
+		Creater:                  creator,
+		Convertor:                safeConverter,
+		Defaulter:                unstructuredDefaulter{parameterScheme, structuralSchema, kind},
+		Typer:                    typer,
+		UnsafeConvertor:          unsafeConverter,
 		EquivalentResourceMapper: equivalentResourceRegistry,
-
-		Resource: resource,
-		Kind:     kind,
-
-		// a handler for a specific group-version of a custom resource uses that version as the in-memory representation
-		HubGroupVersion: kind.GroupVersion(),
-
-		MetaGroupVersion: metav1.SchemeGroupVersion,
-
-		TableConvertor: storage.TableConvertor,
-
-		Authorizer: genericConfig.Authorization.Authorizer,
-
-		MaxRequestBodyBytes: genericConfig.MaxRequestBodyBytes,
-
-		OpenapiModels: modelsByGKV,
+		Resource:                 resource,
+		Kind:                     kind,
+		HubGroupVersion:          kind.GroupVersion(),
+		MetaGroupVersion:         metav1.SchemeGroupVersion,
+		TableConvertor:           table,
+		Authorizer:               genericConfig.Authorization.Authorizer,
+		MaxRequestBodyBytes:      genericConfig.MaxRequestBodyBytes,
+		OpenapiModels:            modelsByGKV,
 	}
 
 	if utilfeature.DefaultFeatureGate.Enabled(features.ServerSideApply) {
-		if withResetFields, canGetResetFields := rest.Storage(storage).(rest.ResetFieldsStrategy); canGetResetFields {
+		if withResetFields, canGetResetFields := storage.(rest.ResetFieldsStrategy); canGetResetFields {
 			resetFields := withResetFields.GetResetFields()
 			reqScope := *requestScope
 			reqScope, err = scopeWithFieldManager(
@@ -313,30 +297,34 @@ func CreateServingInfoFor(genericConfig genericapiserver.CompletedConfig, logica
 		}
 	}
 
-	// shallow copy
-	statusScope := *requestScope
-	statusScope.Subresource = "status"
-	statusScope.Namer = handlers.ContextBasedNaming{
-		SelfLinker:         meta.NewAccessor(),
-		ClusterScoped:      clusterScoped,
-		SelfLinkPathPrefix: selfLinkPrefix,
-		SelfLinkPathSuffix: "/status",
-	}
+	var statusScope handlers.RequestScope
+	statusStorage, statusEnabled := subresourceStorages["status"]
+	if statusEnabled {
+		// shallow copy
+		statusScope := *requestScope
+		statusScope.Subresource = "status"
+		statusScope.Namer = handlers.ContextBasedNaming{
+			SelfLinker:         meta.NewAccessor(),
+			ClusterScoped:      clusterScoped,
+			SelfLinkPathPrefix: selfLinkPrefix,
+			SelfLinkPathSuffix: "/status",
+		}
 
-	if utilfeature.DefaultFeatureGate.Enabled(features.ServerSideApply) {
-		if withResetFields, canGetResetFields := rest.Storage(statusStorage).(rest.ResetFieldsStrategy); canGetResetFields {
-			resetFields := withResetFields.GetResetFields()
-			statusScope, err = scopeWithFieldManager(
-				typeConverter,
-				statusScope,
-				resetFields,
-				"status",
-			)
-			if err != nil {
-				return nil, err
+		if utilfeature.DefaultFeatureGate.Enabled(features.ServerSideApply) {
+			if withResetFields, canGetResetFields := statusStorage.(rest.ResetFieldsStrategy); canGetResetFields {
+				resetFields := withResetFields.GetResetFields()
+				statusScope, err = scopeWithFieldManager(
+					typeConverter,
+					statusScope,
+					resetFields,
+					"status",
+				)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				return nil, fmt.Errorf("storage for resource %q status should define GetResetFields", kind.String())
 			}
-		} else {
-			return nil, fmt.Errorf("storage for resource %q status should define GetResetFields", kind.String())
 		}
 	}
 
@@ -370,6 +358,8 @@ func scopeWithFieldManager(typeConverter fieldmanager.TypeConverter, reqScope ha
 	return reqScope, nil
 }
 
+var _ runtime.ObjectConvertor = nopConverter{}
+
 type nopConverter struct{}
 
 func (u nopConverter) Convert(in, out, context interface{}) error {
@@ -384,17 +374,16 @@ func (u nopConverter) Convert(in, out, context interface{}) error {
 	dv.Set(sv)
 	return nil
 }
-
 func (u nopConverter) ConvertToVersion(in runtime.Object, gv runtime.GroupVersioner) (out runtime.Object, err error) {
 	return in, nil
 }
-
 func (u nopConverter) ConvertFieldLabel(gvk schema.GroupVersionKind, label, value string) (string, string, error) {
 	return label, value, nil
 }
 
-var _ runtime.ObjectConvertor = nopConverter{}
-
+// unstructuredNegotiatedSerializer provides the same logic as the unstructuredNegotiatedSerializer
+// in the apiextensions-apiserver/apiserver package, apart from the fact that it is for a single version.
+// This could be replaced by calling the upstream one (once made public) with just a single version in the map.
 type unstructuredNegotiatedSerializer struct {
 	typer     runtime.ObjectTyper
 	creator   runtime.ObjectCreater
@@ -446,11 +435,9 @@ func (s unstructuredNegotiatedSerializer) SupportedMediaTypes() []runtime.Serial
 		},
 	}
 }
-
 func (s unstructuredNegotiatedSerializer) EncoderForVersion(encoder runtime.Encoder, gv runtime.GroupVersioner) runtime.Encoder {
 	return versioning.NewCodec(encoder, nil, s.converter, Scheme, Scheme, Scheme, gv, nil, "crdNegotiatedSerializer")
 }
-
 func (s unstructuredNegotiatedSerializer) DecoderToVersion(decoder runtime.Decoder, gv runtime.GroupVersioner) runtime.Decoder {
 	returnUnknownFieldPaths := false
 	if serializer, ok := decoder.(*json.Serializer); ok {
@@ -464,46 +451,12 @@ func (s unstructuredNegotiatedSerializer) DecoderToVersion(decoder runtime.Decod
 	}, nil, gv, "unstructuredNegotiatedSerializer")
 }
 
-type UnstructuredObjectTyper struct {
-	Delegate          runtime.ObjectTyper
-	UnstructuredTyper runtime.ObjectTyper
-}
-
-func NewUnstructuredObjectTyper(Delegate runtime.ObjectTyper) UnstructuredObjectTyper {
-	return UnstructuredObjectTyper{
-		Delegate:          Delegate,
-		UnstructuredTyper: crdserverscheme.NewUnstructuredObjectTyper(),
-	}
-}
-
-func (t UnstructuredObjectTyper) ObjectKinds(obj runtime.Object) ([]schema.GroupVersionKind, bool, error) {
-	// Delegate for things other than Unstructured.
-	if _, ok := obj.(runtime.Unstructured); !ok {
-		return t.Delegate.ObjectKinds(obj)
-	}
-	return t.UnstructuredTyper.ObjectKinds(obj)
-}
-
-func (t UnstructuredObjectTyper) Recognizes(gvk schema.GroupVersionKind) bool {
-	return t.Delegate.Recognizes(gvk) || t.UnstructuredTyper.Recognizes(gvk)
-}
-
-type UnstructuredCreator struct{}
-
-func (c UnstructuredCreator) New(kind schema.GroupVersionKind) (runtime.Object, error) {
-	var ret schema.ObjectKind
-	if strings.HasSuffix(kind.Kind, "List") {
-		ret = &unstructured.UnstructuredList{}
-	} else {
-		ret = &unstructured.Unstructured{}
-	}
-	ret.SetGroupVersionKind(kind)
-	return ret.(runtime.Object), nil
-}
-
+// unstructuredDefaulter provides the same logic as the unstructuredDefaulter
+// in the apiextensions-apiserver/apiserver package, apart from the fact that it is for a single version.
+// This could be replaced by calling the upstream one (once made public) with just a single version in the map.
 type unstructuredDefaulter struct {
 	delegate            runtime.ObjectDefaulter
-	structuralSchema    *structuralschema.Structural // by version
+	structuralSchema    *structuralschema.Structural
 	structuralSchemaGVK schema.GroupVersionKind
 }
 
@@ -518,35 +471,9 @@ func (d unstructuredDefaulter) Default(in runtime.Object) {
 	structuraldefaulting.Default(u.UnstructuredContent(), d.structuralSchema)
 }
 
-type CRDRESTOptionsGetter struct {
-	StorageConfig             storagebackend.Config
-	StoragePrefix             string
-	EnableWatchCache          bool
-	DefaultWatchCacheSize     int
-	EnableGarbageCollection   bool
-	DeleteCollectionWorkers   int
-	CountMetricPollPeriod     time.Duration
-	StorageObjectCountTracker flowcontrolrequest.StorageObjectCountTracker
-}
-
-func (t CRDRESTOptionsGetter) GetRESTOptions(resource schema.GroupResource) (generic.RESTOptions, error) {
-	ret := generic.RESTOptions{
-		StorageConfig:             t.StorageConfig.ForResource(resource),
-		Decorator:                 generic.UndecoratedStorage,
-		EnableGarbageCollection:   t.EnableGarbageCollection,
-		DeleteCollectionWorkers:   t.DeleteCollectionWorkers,
-		ResourcePrefix:            resource.Group + "/" + resource.Resource,
-		CountMetricPollPeriod:     t.CountMetricPollPeriod,
-		StorageObjectCountTracker: t.StorageObjectCountTracker,
-	}
-	if t.EnableWatchCache {
-		ret.Decorator = genericregistry.StorageWithCacher()
-	}
-	return ret, nil
-}
-
-// schemaCoercingDecoder calls the delegate decoder, and then applies the Unstructured schema validator
-// to coerce the schema.
+// schemaCoercingDecoder is the copy of the schemaCoercingDecoder
+// in the apiextensions-apiserver/apiserver package
+// This could be replaced by calling the upstream one, once made public
 type schemaCoercingDecoder struct {
 	delegate  runtime.Decoder
 	validator unstructuredSchemaCoercer
@@ -581,54 +508,9 @@ func (d schemaCoercingDecoder) Decode(data []byte, defaults *schema.GroupVersion
 	return obj, gvk, nil
 }
 
-// schemaCoercingConverter calls the delegate converter and applies the Unstructured validator to
-// coerce the schema.
-type schemaCoercingConverter struct {
-	delegate  runtime.ObjectConvertor
-	validator unstructuredSchemaCoercer
-}
-
-var _ runtime.ObjectConvertor = schemaCoercingConverter{}
-
-func (v schemaCoercingConverter) Convert(in, out, context interface{}) error {
-	if err := v.delegate.Convert(in, out, context); err != nil {
-		return err
-	}
-
-	if u, ok := out.(*unstructured.Unstructured); ok {
-		if _, err := v.validator.apply(u); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (v schemaCoercingConverter) ConvertToVersion(in runtime.Object, gv runtime.GroupVersioner) (runtime.Object, error) {
-	out, err := v.delegate.ConvertToVersion(in, gv)
-	if err != nil {
-		return nil, err
-	}
-
-	if u, ok := out.(*unstructured.Unstructured); ok {
-		if _, err := v.validator.apply(u); err != nil {
-			return nil, err
-		}
-	}
-
-	return out, nil
-}
-
-func (v schemaCoercingConverter) ConvertFieldLabel(gvk schema.GroupVersionKind, label, value string) (string, string, error) {
-	return v.delegate.ConvertFieldLabel(gvk, label, value)
-}
-
-// unstructuredSchemaCoercer adds to unstructured unmarshalling what json.Unmarshal does
-// in addition for native types when decoding into Golang structs:
-//
-// - validating and pruning ObjectMeta
-// - generic pruning of unknown fields following a structural schema
-// - removal of non-defaulted non-nullable null map values.
+// unstructuredSchemaCoercer provides the same logic as the unstructuredSchemaCoercer
+// in the apiextensions-apiserver/apiserver package, apart from the fact that it is for a single version.
+// This could be replaced by calling the upstream one (once made public) with just a single version in the map.
 type unstructuredSchemaCoercer struct {
 	dropInvalidMetadata bool
 	repairGeneration    bool

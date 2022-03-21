@@ -30,7 +30,7 @@ import (
 	genericapiserver "k8s.io/apiserver/pkg/server"
 
 	virtualcontext "github.com/kcp-dev/kcp/pkg/virtual/framework/context"
-	syncer "github.com/kcp-dev/kcp/pkg/virtual/syncer"
+	apidefs "github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic/apidefs"
 )
 
 var (
@@ -57,9 +57,7 @@ func init() {
 }
 
 type DynamicAPIServerExtraConfig struct {
-	APISetRetriever syncer.APISetRetriever
-
-	// Something that contains all the sort-of crdInfo per location + per GVR ?
+	APISetRetriever apidefs.APISetRetriever
 }
 
 type DynamicAPIServerConfig struct {
@@ -70,7 +68,7 @@ type DynamicAPIServerConfig struct {
 // DynamicAPIServer contains state for a Kubernetes cluster master/api server.
 type DynamicAPIServer struct {
 	GenericAPIServer *genericapiserver.GenericAPIServer
-	APISetRetriever  syncer.APISetRetriever
+	APISetRetriever  apidefs.APISetRetriever
 }
 
 type completedConfig struct {
@@ -152,6 +150,7 @@ func (c completedConfig) New(virtualWorkspaceName string, delegationTarget gener
 		c.GenericConfig.RequestTimeout,
 		time.Duration(c.GenericConfig.MinRequestTimeout)*time.Second,
 		c.GenericConfig.MaxRequestBodyBytes,
+		s.GenericAPIServer.StaticOpenAPISpec,
 	)
 	if err != nil {
 		return nil, err
@@ -169,7 +168,7 @@ func (c completedConfig) New(virtualWorkspaceName string, delegationTarget gener
 	// HACK: Added to allow serving core resources registered through CRDs (for the KCP scenario)
 	s.GenericAPIServer.Handler.NonGoRestfulMux.UnlistedHandlePrefix("/api/v1/", crdHandler)
 
-	// TODO: plug OpenAPI when necessary, when this is made generic
+	// TODO: plug OpenAPI
 
 	return s, nil
 }

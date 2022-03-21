@@ -19,11 +19,8 @@ package builder
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
-	"sync"
 
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	"k8s.io/client-go/dynamic"
@@ -34,119 +31,14 @@ import (
 	kcpclient "github.com/kcp-dev/kcp/pkg/client/clientset/versioned"
 	kcpinformer "github.com/kcp-dev/kcp/pkg/client/informers/externalversions"
 	"github.com/kcp-dev/kcp/pkg/virtual/framework"
-	"github.com/kcp-dev/kcp/pkg/virtual/syncer"
-	"github.com/kcp-dev/kcp/pkg/virtual/syncer/apiserver"
 	"github.com/kcp-dev/kcp/pkg/virtual/syncer/controllers"
-	virtualworkspacesregistry "github.com/kcp-dev/kcp/pkg/virtual/syncer/registry"
+	virtualworkspacesdynamic "github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic"
+	apidefs "github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic/apidefs"
+	"github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic/apiserver"
 )
 
 const SyncerVirtualWorkspaceName string = "syncer"
 const DefaultRootPathPrefix string = "/services/syncer"
-
-type clusterAwareClientGetter struct {
-	clusterInterface dynamic.ClusterInterface
-}
-
-func (g *clusterAwareClientGetter) GetDynamicClient(ctx context.Context) (dynamic.Interface, error) {
-	cluster, err := genericapirequest.ValidClusterFrom(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if cluster.Wildcard {
-		return g.clusterInterface.Cluster("*"), nil
-	} else {
-		return g.clusterInterface.Cluster(cluster.Name), nil
-	}
-}
-
-type createAPIDefinitionFunc func(workspaceName string, spec *apiresourcev1alpha1.CommonAPIResourceSpec) (syncer.APIDefinition, error)
-type installedAPIs struct {
-	createAPIDefinition createAPIDefinitionFunc
-
-	mutex   sync.RWMutex
-	apiSets map[string]syncer.APISet
-}
-
-func newInstalledAPIs(createAPIDefinition createAPIDefinitionFunc) *installedAPIs {
-	return &installedAPIs{
-		createAPIDefinition: createAPIDefinition,
-		apiSets:             make(map[string]syncer.APISet),
-	}
-}
-
-func (apis *installedAPIs) addLocation(locationName string) {
-	apis.mutex.Lock()
-	defer apis.mutex.Unlock()
-
-	if _, exists := apis.apiSets[locationName]; !exists {
-		apis.apiSets[locationName] = make(syncer.APISet)
-	}
-}
-
-func (apis *installedAPIs) removeLocation(locationName string) {
-	apis.mutex.Lock()
-	defer apis.mutex.Unlock()
-
-	delete(apis.apiSets, locationName)
-}
-
-func (apis *installedAPIs) GetAPIs(locationKey string) (syncer.APISet, bool) {
-	apis.mutex.RLock()
-	defer apis.mutex.RUnlock()
-
-	apiSet, ok := apis.apiSets[locationKey]
-	return apiSet, ok
-}
-
-func (apis *installedAPIs) Upsert(api syncer.WorkloadClusterAPI) error {
-	apis.mutex.Lock()
-	defer apis.mutex.Unlock()
-
-	if locationAPIs, exists := apis.apiSets[api.LocationName]; !exists {
-		return fmt.Errorf("workload cluster %q in workspace %q is unknown", api.LocationName, api.WorkspaceName)
-	} else {
-		gvr := schema.GroupVersionResource{
-			Group:    api.Spec.GroupVersion.Group,
-			Version:  api.Spec.GroupVersion.Version,
-			Resource: api.Spec.Plural,
-		}
-		if apiDefinition, err := apis.createAPIDefinition(api.WorkspaceName, api.Spec); err != nil {
-			return err
-		} else {
-			locationAPIs[gvr] = apiDefinition
-		}
-	}
-	return nil
-}
-
-func (apis *installedAPIs) Remove(api syncer.WorkloadClusterAPI) error {
-	apis.mutex.Lock()
-	defer apis.mutex.Unlock()
-
-	if locationAPIs, exists := apis.apiSets[api.LocationName]; !exists {
-		return fmt.Errorf("workload cluster %q in workspace %q is unknown", api.LocationName, api.WorkspaceName)
-	} else {
-		gvr := schema.GroupVersionResource{
-			Group:    api.Spec.GroupVersion.Group,
-			Version:  api.Spec.GroupVersion.Version,
-			Resource: api.Spec.Plural,
-		}
-		delete(locationAPIs, gvr)
-	}
-	return nil
-}
-
-type delegatingAPISetRetriever struct {
-	delegate syncer.APISetRetriever
-}
-
-func (d *delegatingAPISetRetriever) GetAPIs(locationKey string) (apis syncer.APISet, locationExists bool) {
-	if d.delegate == nil {
-		return nil, false
-	} else {
-		return d.delegate.GetAPIs(locationKey)
-	}
-}
 
 func BuildVirtualWorkspace(rootPathPrefix string, dynamicClusterClient dynamic.ClusterInterface, kcpClusterClient kcpclient.ClusterInterface, wildcardKcpInformers kcpinformer.SharedInformerFactory) framework.VirtualWorkspace {
 
@@ -154,11 +46,15 @@ func BuildVirtualWorkspace(rootPathPrefix string, dynamicClusterClient dynamic.C
 		rootPathPrefix += "/"
 	}
 
-	apiSetRetriever := &delegatingAPISetRetriever{}
+	var installedAPIs *installedAPIs
+	ready := false
 
-	return &SyncerVirtualWorkspace{
+	return &virtualworkspacesdynamic.DynamicVirtualWorkspace{
 		Name: SyncerVirtualWorkspaceName,
 		RootPathResolver: func(urlPath string, requestContext context.Context) (accepted bool, prefixToStrip string, completedContext context.Context) {
+			if installedAPIs == nil {
+				return
+			}
 			completedContext = requestContext
 			if path := urlPath; strings.HasPrefix(path, rootPathPrefix) {
 				withoutRootPathPrefix := strings.TrimPrefix(path, rootPathPrefix)
@@ -188,30 +84,32 @@ func BuildVirtualWorkspace(rootPathPrefix string, dynamicClusterClient dynamic.C
 				}
 				requestContext = genericapirequest.WithCluster(requestContext, cluster)
 
-				if _, exists := apiSetRetriever.GetAPIs(locationKey); !exists {
+				if _, exists := installedAPIs.GetAPIs(locationKey); !exists {
 					return
 				}
 
 				prefixToStrip = strings.TrimSuffix(path, realPath)
-				return true, prefixToStrip, context.WithValue(requestContext, virtualworkspacesregistry.LocationKeyContextKey, locationKey)
+				return true, prefixToStrip, context.WithValue(requestContext, apidefs.APIDomainKeyContextKey, locationKey)
 			}
 			return
 		},
 		Ready: func() error {
-			// TODO: implement for real
-			return errors.New("not implemented")
+			if !ready {
+				return errors.New("syncer virtual workspace controllers are not started")
+			}
+			return nil
 		},
-		BootstrapAPISetManager: func(mainConfig genericapiserver.CompletedConfig) error {
-
-			installedAPIs := newInstalledAPIs(func(workspaceName string, spec *apiresourcev1alpha1.CommonAPIResourceSpec) (syncer.APIDefinition, error) {
-				return apiserver.CreateServingInfoFor(mainConfig, workspaceName, spec, &clusterAwareClientGetter{
-					clusterInterface: dynamicClusterClient,
-				})
-
-			})
-			apiSetRetriever.delegate = installedAPIs
+		BootstrapAPISetManagement: func(mainConfig genericapiserver.CompletedConfig) (apidefs.APISetRetriever, error) {
 
 			clusterInformer := wildcardKcpInformers.Workload().V1alpha1().WorkloadClusters().Informer()
+			apiResourceImportInformer := wildcardKcpInformers.Apiresource().V1alpha1().APIResourceImports()
+			negotiatedAPIResourceInformer := wildcardKcpInformers.Apiresource().V1alpha1().NegotiatedAPIResources()
+
+			installedAPIs = newInstalledAPIs(func(workspaceName string, spec *apiresourcev1alpha1.CommonAPIResourceSpec) (apidefs.APIDefinition, error) {
+				return apiserver.CreateServingInfoFor(mainConfig, workspaceName, spec, provideForwardingRestStorage(&clusterAwareClientGetter{
+					clusterInterface: dynamicClusterClient,
+				}))
+			})
 
 			// This should be replace by a real controller when the URLs should be added to the WorkloadCluster object
 			clusterInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -227,12 +125,9 @@ func BuildVirtualWorkspace(rootPathPrefix string, dynamicClusterClient dynamic.C
 				},
 			})
 
-			apiResourceImportInformer := wildcardKcpInformers.Apiresource().V1alpha1().APIResourceImports()
-			negotiatedAPIResourceInformer := wildcardKcpInformers.Apiresource().V1alpha1().NegotiatedAPIResources()
-
 			apiReconciler, err := controllers.NewAPIReconciler(installedAPIs, kcpClusterClient, apiResourceImportInformer, negotiatedAPIResourceInformer)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			if err := mainConfig.AddPostStartHook("apiresourceimports.kcp.dev-api-reconciler", func(hookContext genericapiserver.PostStartHookContext) error {
@@ -245,6 +140,7 @@ func BuildVirtualWorkspace(rootPathPrefix string, dynamicClusterClient dynamic.C
 					}
 				}
 
+				ready = true
 				ctx, cancel := context.WithCancel(context.Background())
 				go func() {
 					<-hookContext.StopCh
@@ -253,11 +149,10 @@ func BuildVirtualWorkspace(rootPathPrefix string, dynamicClusterClient dynamic.C
 				go apiReconciler.Start(ctx)
 				return nil
 			}); err != nil {
-				return err
+				return nil, err
 			}
 
-			return nil
+			return installedAPIs, nil
 		},
-		apiSets: apiSetRetriever,
 	}
 }

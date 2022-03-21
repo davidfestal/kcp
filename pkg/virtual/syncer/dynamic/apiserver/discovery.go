@@ -31,12 +31,11 @@ import (
 	"k8s.io/kubernetes/pkg/genericcontrolplane/aggregator"
 
 	apiresourcev1alpha1 "github.com/kcp-dev/kcp/pkg/apis/apiresource/v1alpha1"
-	syncer "github.com/kcp-dev/kcp/pkg/virtual/syncer"
-	"github.com/kcp-dev/kcp/pkg/virtual/syncer/registry"
+	apidefs "github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic/apidefs"
 )
 
 type versionDiscoveryHandler struct {
-	apiSetRetriever syncer.APISetRetriever
+	apiSetRetriever apidefs.APISetRetriever
 	delegate        http.Handler
 }
 
@@ -53,9 +52,9 @@ func (r *versionDiscoveryHandler) ServeHTTP(w http.ResponseWriter, req *http.Req
 	requestedGroup := pathParts[1]
 	requestedVersion := pathParts[2]
 
-	locationKey := ctx.Value(registry.LocationKeyContextKey).(string)
+	apiDomainKey := ctx.Value(apidefs.APIDomainKeyContextKey).(string)
 
-	apiSet, _ := r.apiSetRetriever.GetAPIs(locationKey)
+	apiSet, _ := r.apiSetRetriever.GetAPIs(apiDomainKey)
 
 	apiResources := APIResourcesForGroupVersion(requestedGroup, requestedVersion, apiSet)
 
@@ -66,7 +65,7 @@ func (r *versionDiscoveryHandler) ServeHTTP(w http.ResponseWriter, req *http.Req
 	discovery.NewAPIVersionHandler(Codecs, schema.GroupVersion{Group: requestedGroup, Version: requestedVersion}, resourceListerFunc).ServeHTTP(w, req)
 }
 
-func APIResourcesForGroupVersion(requestedGroup, requestedVersion string, apiSet syncer.APISet) []metav1.APIResource {
+func APIResourcesForGroupVersion(requestedGroup, requestedVersion string, apiSet apidefs.APISet) []metav1.APIResource {
 	apiResourcesForDiscovery := []metav1.APIResource{}
 
 	for gvr, apiDef := range apiSet {
@@ -115,7 +114,7 @@ func APIResourcesForGroupVersion(requestedGroup, requestedVersion string, apiSet
 }
 
 type groupDiscoveryHandler struct {
-	apiSetRetriever syncer.APISetRetriever
+	apiSetRetriever apidefs.APISetRetriever
 	delegate        http.Handler
 }
 
@@ -134,13 +133,13 @@ func (r *groupDiscoveryHandler) ServeHTTP(w http.ResponseWriter, req *http.Reque
 
 	requestedGroup := pathParts[1]
 
-	locationKey := ctx.Value(registry.LocationKeyContextKey).(string)
+	apiDomainKey := ctx.Value(apidefs.APIDomainKeyContextKey).(string)
 
-	apiSet, _ := r.apiSetRetriever.GetAPIs(locationKey)
+	apiSet, _ := r.apiSetRetriever.GetAPIs(apiDomainKey)
 
 	foundGroup := false
 
-	for gvr, _ := range apiSet {
+	for gvr := range apiSet {
 		if requestedGroup != gvr.Group {
 			continue
 		}
@@ -180,7 +179,7 @@ func (r *groupDiscoveryHandler) ServeHTTP(w http.ResponseWriter, req *http.Reque
 }
 
 type rootDiscoveryHandler struct {
-	apiSetRetriever syncer.APISetRetriever
+	apiSetRetriever apidefs.APISetRetriever
 	delegate        http.Handler
 }
 
@@ -189,11 +188,11 @@ func (r *rootDiscoveryHandler) ServeHTTP(w http.ResponseWriter, req *http.Reques
 	versionsForDiscoveryMap := map[string]map[metav1.GroupVersion]bool{}
 
 	ctx := req.Context()
-	locationKey := ctx.Value(registry.LocationKeyContextKey).(string)
+	apiDomainKey := ctx.Value(apidefs.APIDomainKeyContextKey).(string)
 
-	apiSet, _ := r.apiSetRetriever.GetAPIs(locationKey)
+	apiSet, _ := r.apiSetRetriever.GetAPIs(apiDomainKey)
 
-	for gvr, _ := range apiSet {
+	for gvr := range apiSet {
 
 		if gvr.Group == "" {
 			// Don't include CRDs in the core ("") group in /apis discovery. They

@@ -40,7 +40,7 @@ type validator struct {
 	statusSchemaValidator *validate.SchemaValidator
 }
 
-func (a validator) Validate(ctx context.Context, obj runtime.Object, scale *apiextensions.CustomResourceSubresourceScale) field.ErrorList {
+func (a validator) Validate(ctx context.Context, obj runtime.Object) field.ErrorList {
 	u, ok := obj.(*unstructured.Unstructured)
 	if !ok {
 		return field.ErrorList{field.Invalid(field.NewPath(""), u, fmt.Sprintf("has type %T. Must be a pointer to an Unstructured type", u))}
@@ -58,13 +58,11 @@ func (a validator) Validate(ctx context.Context, obj runtime.Object, scale *apie
 
 	allErrs = append(allErrs, validation.ValidateObjectMetaAccessor(accessor, a.namespaceScoped, validation.NameIsDNSSubdomain, field.NewPath("metadata"))...)
 	allErrs = append(allErrs, apiservervalidation.ValidateCustomResource(nil, u.UnstructuredContent(), a.schemaValidator)...)
-	allErrs = append(allErrs, a.ValidateScaleSpec(ctx, u, scale)...)
-	allErrs = append(allErrs, a.ValidateScaleStatus(ctx, u, scale)...)
 
 	return allErrs
 }
 
-func (a validator) ValidateUpdate(ctx context.Context, obj, old runtime.Object, scale *apiextensions.CustomResourceSubresourceScale) field.ErrorList {
+func (a validator) ValidateUpdate(ctx context.Context, obj, old runtime.Object) field.ErrorList {
 	u, ok := obj.(*unstructured.Unstructured)
 	if !ok {
 		return field.ErrorList{field.Invalid(field.NewPath(""), u, fmt.Sprintf("has type %T. Must be a pointer to an Unstructured type", u))}
@@ -86,8 +84,6 @@ func (a validator) ValidateUpdate(ctx context.Context, obj, old runtime.Object, 
 
 	allErrs = append(allErrs, validation.ValidateObjectMetaAccessorUpdate(objAccessor, oldAccessor, field.NewPath("metadata"))...)
 	allErrs = append(allErrs, apiservervalidation.ValidateCustomResource(nil, u.UnstructuredContent(), a.schemaValidator)...)
-	allErrs = append(allErrs, a.ValidateScaleSpec(ctx, u, scale)...)
-	allErrs = append(allErrs, a.ValidateScaleStatus(ctx, u, scale)...)
 
 	return allErrs
 }
@@ -142,27 +138,6 @@ func (a validator) ValidateTypeMeta(ctx context.Context, obj *unstructured.Unstr
 	if typeAccessor.GetAPIVersion() != expectedAPIVersion {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("apiVersion"), typeAccessor.GetAPIVersion(), fmt.Sprintf("must be %v", a.kind.Group+"/"+a.kind.Version)))
 	}
-	return allErrs
-}
-
-func (a validator) ValidateScaleSpec(ctx context.Context, obj *unstructured.Unstructured, scale *apiextensions.CustomResourceSubresourceScale) field.ErrorList {
-	if scale == nil {
-		return nil
-	}
-
-	var allErrs field.ErrorList
-
-	// validate specReplicas
-	specReplicasPath := strings.TrimPrefix(scale.SpecReplicasPath, ".") // ignore leading period
-	specReplicas, _, err := unstructured.NestedInt64(obj.UnstructuredContent(), strings.Split(specReplicasPath, ".")...)
-	if err != nil {
-		allErrs = append(allErrs, field.Invalid(field.NewPath(scale.SpecReplicasPath), specReplicas, err.Error()))
-	} else if specReplicas < 0 {
-		allErrs = append(allErrs, field.Invalid(field.NewPath(scale.SpecReplicasPath), specReplicas, "should be a non-negative integer"))
-	} else if specReplicas > math.MaxInt32 {
-		allErrs = append(allErrs, field.Invalid(field.NewPath(scale.SpecReplicasPath), specReplicas, fmt.Sprintf("should be less than or equal to %v", math.MaxInt32)))
-	}
-
 	return allErrs
 }
 

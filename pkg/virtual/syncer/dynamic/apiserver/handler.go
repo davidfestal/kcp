@@ -24,7 +24,6 @@ import (
 	"strings"
 	"time"
 
-	listers "k8s.io/apiextensions-apiserver/pkg/client/listers/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -32,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer/protobuf"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/admission"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
 	"k8s.io/apiserver/pkg/endpoints/handlers"
@@ -41,23 +39,20 @@ import (
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/features"
 	"k8s.io/apiserver/pkg/registry/rest"
-	genericfilters "k8s.io/apiserver/pkg/server/filters"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/kube-openapi/pkg/validation/spec"
 
-	syncer "github.com/kcp-dev/kcp/pkg/virtual/syncer"
-	"github.com/kcp-dev/kcp/pkg/virtual/syncer/registry"
+	apidefs "github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic/apidefs"
 )
 
 // resourceHandler serves the `/apis` endpoint.
 // This is registered as a filter so that it never collides with any explicitly registered endpoints
 type resourceHandler struct {
-	apiSetRetriever         syncer.APISetRetriever
+	apiSetRetriever         apidefs.APISetRetriever
 	versionDiscoveryHandler *versionDiscoveryHandler
 	groupDiscoveryHandler   *groupDiscoveryHandler
 	rootDiscoveryHandler    *rootDiscoveryHandler
-
-	crdLister listers.CustomResourceDefinitionLister
 
 	delegate http.Handler
 
@@ -78,7 +73,7 @@ type resourceHandler struct {
 }
 
 func NewResourceHandler(
-	apiSetRetriever syncer.APISetRetriever,
+	apiSetRetriever apidefs.APISetRetriever,
 	versionDiscoveryHandler *versionDiscoveryHandler,
 	groupDiscoveryHandler *groupDiscoveryHandler,
 	rootDiscoveryHandler *rootDiscoveryHandler,
@@ -87,7 +82,8 @@ func NewResourceHandler(
 	authorizer authorizer.Authorizer,
 	requestTimeout time.Duration,
 	minRequestTimeout time.Duration,
-	maxRequestBodyBytes int64) (*resourceHandler, error) {
+	maxRequestBodyBytes int64,
+	staticOpenAPISpec *spec.Swagger) (*resourceHandler, error) {
 	ret := &resourceHandler{
 		apiSetRetriever:         apiSetRetriever,
 		versionDiscoveryHandler: versionDiscoveryHandler,
@@ -103,15 +99,6 @@ func NewResourceHandler(
 
 	return ret, nil
 }
-
-// watches are expected to handle storage disruption gracefully,
-// both on the server-side (by terminating the watch connection)
-// and on the client side (by restarting the watch)
-var longRunningFilter = genericfilters.BasicLongRunningRequestCheck(sets.NewString("watch"), sets.NewString())
-
-// possiblyAcrossAllNamespacesVerbs contains those verbs which can be per-namespace and across all
-// namespaces for namespaces resources. I.e. for these an empty namespace in the requestInfo is fine.
-var possiblyAcrossAllNamespacesVerbs = sets.NewString("list", "watch")
 
 func (r *resourceHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
@@ -146,7 +133,7 @@ func (r *resourceHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	locationKey := ctx.Value(registry.LocationKeyContextKey).(string)
+	locationKey := ctx.Value(apidefs.APIDomainKeyContextKey).(string)
 
 	apiDefs, _ := r.apiSetRetriever.GetAPIs(locationKey)
 	apiDef, exists := apiDefs[schema.GroupVersionResource{
@@ -203,7 +190,6 @@ func (r *resourceHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	switch {
 	case subresource == "status" && subresources != nil && subresources.Contains("status"):
 		handlerFunc = r.serveStatus(w, req, requestInfo, apiDef, supportedTypes)
-	// TODO when we make a generic thing from this, possibly add scale here.
 	case len(subresource) == 0:
 		handlerFunc = r.serveResource(w, req, requestInfo, apiDef, supportedTypes)
 	default:
@@ -215,24 +201,14 @@ func (r *resourceHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	if handlerFunc != nil {
 		handlerFunc = metrics.InstrumentHandlerFunc(verb, requestInfo.APIGroup, requestInfo.APIVersion, resource, subresource, scope, metrics.APIServerComponent, false, "", handlerFunc)
-		//		handler := genericfilters.WithWaitGroup(handlerFunc, longRunningFilter, crdInfo.waitGroup)
 		handlerFunc.ServeHTTP(w, req)
 		return
 	}
 }
 
-// HACK: In some contexts, like the controller-runtime library used by the Operator SDK, all the resources of the
-// client-go scheme are created / updated using the protobuf content type.
-// However when these resources are in fact added as CRDs, in the KCP minimal API server scenario, these resources cannot
-// be created / updated since the protobuf (de)serialization is not supported for CRDs.
-// So in this case we just convert the protobuf request to a Json one (using the `client-go` scheme decoder/encoder),
-// before letting the CRD handler serve it.
-//
-// A real, long-term and non-hacky, fix for this problem would be as follows:
-// When a request for an unsupported serialization is returned, the server should reject it with a 406
-// and provide a list of supported content types.
-// client-go should then examine whether it can satisfy such a request by encoding the object with a different scheme.
-// This would require a KEP but is in keeping with content negotiation on GET / WATCH in Kube
+// convertProtobufRequestsToJson is the copy of the convertProtobufRequestsToJson function
+// in the apiextensions-apiserver/apiserver package
+// This could be replaced by calling the upstream one, once made public
 func convertProtobufRequestsToJson(verb string, req *http.Request, gvk schema.GroupVersionKind) (*http.Request, error) {
 	if (verb == "CREATE" || verb == "UPDATE") &&
 		req.Header.Get("Content-Type") == runtime.ContentTypeProtobuf {
@@ -255,9 +231,9 @@ func convertProtobufRequestsToJson(verb string, req *http.Request, gvk schema.Gr
 		}
 
 		// get bytes through IO operations
-		protobuf.NewSerializer(clientgoscheme.Scheme, clientgoscheme.Scheme).Decode(buf.Bytes(), &gvk, resource)
+		_, _, _ = protobuf.NewSerializer(clientgoscheme.Scheme, clientgoscheme.Scheme).Decode(buf.Bytes(), &gvk, resource)
 		buf = new(bytes.Buffer)
-		json.NewSerializerWithOptions(json.DefaultMetaFactory, clientgoscheme.Scheme, clientgoscheme.Scheme, json.SerializerOptions{Yaml: false, Pretty: false, Strict: true}).
+		_ = json.NewSerializerWithOptions(json.DefaultMetaFactory, clientgoscheme.Scheme, clientgoscheme.Scheme, json.SerializerOptions{Yaml: false, Pretty: false, Strict: true}).
 			Encode(resource, buf)
 		req.Body = ioutil.NopCloser(buf)
 		req.ContentLength = int64(buf.Len())
@@ -266,7 +242,7 @@ func convertProtobufRequestsToJson(verb string, req *http.Request, gvk schema.Gr
 	return req, nil
 }
 
-func (r *resourceHandler) serveResource(w http.ResponseWriter, req *http.Request, requestInfo *apirequest.RequestInfo, apiDef syncer.APIDefinition, supportedTypes []string) http.HandlerFunc {
+func (r *resourceHandler) serveResource(w http.ResponseWriter, req *http.Request, requestInfo *apirequest.RequestInfo, apiDef apidefs.APIDefinition, supportedTypes []string) http.HandlerFunc {
 	requestScope := apiDef.GetRequestScope()
 	storage := apiDef.GetStorage()
 
@@ -319,7 +295,7 @@ func (r *resourceHandler) serveResource(w http.ResponseWriter, req *http.Request
 	return nil
 }
 
-func (r *resourceHandler) serveStatus(w http.ResponseWriter, req *http.Request, requestInfo *apirequest.RequestInfo, apiDef syncer.APIDefinition, supportedTypes []string) http.HandlerFunc {
+func (r *resourceHandler) serveStatus(w http.ResponseWriter, req *http.Request, requestInfo *apirequest.RequestInfo, apiDef apidefs.APIDefinition, supportedTypes []string) http.HandlerFunc {
 	requestScope := apiDef.GetSubResourceRequestScope("status")
 	storage := apiDef.GetSubResourceStorage("status")
 
@@ -334,31 +310,6 @@ func (r *resourceHandler) serveStatus(w http.ResponseWriter, req *http.Request, 
 		}
 	case "patch":
 		if storage, isAble := storage.(rest.Patcher); isAble {
-			return handlers.PatchResource(storage, requestScope, r.admission, supportedTypes)
-		}
-	}
-	responsewriters.ErrorNegotiated(
-		apierrors.NewMethodNotSupported(schema.GroupResource{Group: requestInfo.APIGroup, Resource: requestInfo.Resource}, requestInfo.Verb),
-		Codecs, schema.GroupVersion{Group: requestInfo.APIGroup, Version: requestInfo.APIVersion}, w, req,
-	)
-	return nil
-}
-
-func (r *resourceHandler) serveScale(w http.ResponseWriter, req *http.Request, requestInfo *apirequest.RequestInfo, apiDef syncer.APIDefinition, supportedTypes []string) http.HandlerFunc {
-	requestScope := apiDef.GetSubResourceRequestScope("scale")
-	storage := apiDef.GetSubResourceStorage("scale")
-
-	switch requestInfo.Verb {
-	case "get":
-		if storage, isGetter := storage.(rest.Getter); isGetter {
-			return handlers.GetResource(storage, requestScope)
-		}
-	case "update":
-		if storage, isUpdater := storage.(rest.Updater); isUpdater {
-			return handlers.UpdateResource(storage, requestScope, r.admission)
-		}
-	case "patch":
-		if storage, isPatcher := storage.(rest.Patcher); isPatcher {
 			return handlers.PatchResource(storage, requestScope, r.admission, supportedTypes)
 		}
 	}

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package builder
+package dynamic
 
 import (
 	"context"
@@ -22,27 +22,26 @@ import (
 	genericapiserver "k8s.io/apiserver/pkg/server"
 
 	"github.com/kcp-dev/kcp/pkg/virtual/framework"
-	"github.com/kcp-dev/kcp/pkg/virtual/syncer"
+	apidefs "github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic/apidefs"
 )
 
-var _ framework.VirtualWorkspace = (*SyncerVirtualWorkspace)(nil)
+var _ framework.VirtualWorkspace = (*DynamicVirtualWorkspace)(nil)
 
-type SyncerVirtualWorkspace struct {
-	Name                   string
-	RootPathResolver       framework.RootPathResolverFunc
-	Ready                  framework.ReadyFunc
-	BootstrapAPISetManager func(mainConfig genericapiserver.CompletedConfig) error
-	apiSets                syncer.APISetRetriever
+type DynamicVirtualWorkspace struct {
+	Name                      string
+	RootPathResolver          framework.RootPathResolverFunc
+	Ready                     framework.ReadyFunc
+	BootstrapAPISetManagement func(mainConfig genericapiserver.CompletedConfig) (apidefs.APISetRetriever, error)
 }
 
-func (vw *SyncerVirtualWorkspace) GetName() string {
+func (vw *DynamicVirtualWorkspace) GetName() string {
 	return vw.Name
 }
 
-func (vw *SyncerVirtualWorkspace) IsReady() error {
+func (vw *DynamicVirtualWorkspace) IsReady() error {
 	return vw.Ready()
 }
 
-func (vw *SyncerVirtualWorkspace) ResolveRootPath(urlPath string, context context.Context) (accepted bool, prefixToStrip string, completedContext context.Context) {
+func (vw *DynamicVirtualWorkspace) ResolveRootPath(urlPath string, context context.Context) (accepted bool, prefixToStrip string, completedContext context.Context) {
 	return vw.RootPathResolver(urlPath, context)
 }

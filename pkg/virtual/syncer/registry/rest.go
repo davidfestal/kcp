@@ -33,24 +33,12 @@ import (
 	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/structured-merge-diff/v4/fieldpath"
-
-	syncer "github.com/kcp-dev/kcp/pkg/virtual/syncer"
 )
 
-const (
-	OrganizationScope string = "organization"
-	PersonalScope     string = "personal"
-	PrettyNameLabel   string = "workspaces.kcp.dev/pretty-name"
-	InternalNameLabel string = "workspaces.kcp.dev/internal-name"
-	PrettyNameIndex   string = "workspace-pretty-name"
-	InternalNameIndex string = "workspace-internal-name"
-)
-
-type LocationKeyContextKeyType string
-
-const LocationKeyContextKey LocationKeyContextKeyType = "VirtualWorkspaceSyncerLocationKey"
-
-type REST struct {
+type ClientGetter interface {
+	GetDynamicClient(ctx context.Context) (dynamic.Interface, error)
+}
+type ForwardingREST struct {
 	// createStrategy allows extended behavior during creation, required
 	createStrategy rest.RESTCreateStrategy
 	// updateStrategy allows extended behavior during updates, required
@@ -65,18 +53,18 @@ type REST struct {
 	kind     schema.GroupVersionKind
 	listKind schema.GroupVersionKind
 
-	clientGetter syncer.ClientGetter
+	clientGetter ClientGetter
 	subResources []string
 }
 
-var _ rest.Lister = &REST{}
-var _ rest.Watcher = &REST{}
-var _ rest.Getter = &REST{}
-var _ rest.Updater = &REST{}
+var _ rest.Lister = &ForwardingREST{}
+var _ rest.Watcher = &ForwardingREST{}
+var _ rest.Getter = &ForwardingREST{}
+var _ rest.Updater = &ForwardingREST{}
 
-// NewREST returns a RESTStorage object that will work against Workspace resources
-func NewREST(resource schema.GroupVersionResource, kind, listKind schema.GroupVersionKind, strategy strategy, tableConvertor rest.TableConvertor, dynamicClientGetter syncer.ClientGetter) (*REST, *StatusREST) {
-	mainREST := &REST{
+// NewForwardingREST returns a REST storage that forwards calls to a dynamic client
+func NewForwardingREST(resource schema.GroupVersionResource, kind, listKind schema.GroupVersionKind, strategy strategy, tableConvertor rest.TableConvertor, clientGetter ClientGetter) (*ForwardingREST, *StatusREST) {
+	mainREST := &ForwardingREST{
 		createStrategy:      strategy,
 		updateStrategy:      strategy,
 		resetFieldsStrategy: strategy,
@@ -87,7 +75,7 @@ func NewREST(resource schema.GroupVersionResource, kind, listKind schema.GroupVe
 		kind:     kind,
 		listKind: listKind,
 
-		clientGetter: dynamicClientGetter,
+		clientGetter: clientGetter,
 	}
 	statusMainREST := *mainREST
 	statusMainREST.subResources = []string{"status"}
@@ -98,7 +86,7 @@ func NewREST(resource schema.GroupVersionResource, kind, listKind schema.GroupVe
 		}
 }
 
-func (s *REST) GetClientResource(ctx context.Context) (dynamic.ResourceInterface, error) {
+func (s *ForwardingREST) GetClientResource(ctx context.Context) (dynamic.ResourceInterface, error) {
 	client, err := s.clientGetter.GetDynamicClient(ctx)
 	if err != nil {
 		return nil, err
@@ -116,7 +104,7 @@ func (s *REST) GetClientResource(ctx context.Context) (dynamic.ResourceInterface
 }
 
 // New returns a new Workspace
-func (s *REST) New() runtime.Object {
+func (s *ForwardingREST) New() runtime.Object {
 	// set the expected group/version/kind in the new object as a signal to the versioning decoder
 	ret := &unstructured.Unstructured{}
 	ret.SetGroupVersionKind(s.kind)
@@ -124,7 +112,7 @@ func (s *REST) New() runtime.Object {
 }
 
 // NewList returns a new WorkspaceList
-func (s *REST) NewList() runtime.Object {
+func (s *ForwardingREST) NewList() runtime.Object {
 	// lists are never stored, only manufactured, so stomp in the right kind
 	ret := &unstructured.UnstructuredList{}
 	ret.SetGroupVersionKind(s.listKind)
@@ -132,7 +120,7 @@ func (s *REST) NewList() runtime.Object {
 }
 
 // List retrieves a list of Workspaces that match label.
-func (s *REST) List(ctx context.Context, options *metainternal.ListOptions) (runtime.Object, error) {
+func (s *ForwardingREST) List(ctx context.Context, options *metainternal.ListOptions) (runtime.Object, error) {
 	var v1ListOptions metav1.ListOptions
 	if err := metainternal.Convert_internalversion_ListOptions_To_v1_ListOptions(options, &v1ListOptions, nil); err != nil {
 		return nil, err
@@ -145,7 +133,7 @@ func (s *REST) List(ctx context.Context, options *metainternal.ListOptions) (run
 	return delegate.List(ctx, v1ListOptions)
 }
 
-func (s *REST) Watch(ctx context.Context, options *metainternalversion.ListOptions) (watch.Interface, error) {
+func (s *ForwardingREST) Watch(ctx context.Context, options *metainternalversion.ListOptions) (watch.Interface, error) {
 	var v1ListOptions metav1.ListOptions
 	if err := metainternal.Convert_internalversion_ListOptions_To_v1_ListOptions(options, &v1ListOptions, nil); err != nil {
 		return nil, err
@@ -159,7 +147,7 @@ func (s *REST) Watch(ctx context.Context, options *metainternalversion.ListOptio
 }
 
 // Get retrieves a Workspace by name
-func (s *REST) Get(ctx context.Context, name string, options *metav1.GetOptions) (runtime.Object, error) {
+func (s *ForwardingREST) Get(ctx context.Context, name string, options *metav1.GetOptions) (runtime.Object, error) {
 	delegate, err := s.GetClientResource(ctx)
 	if err != nil {
 		return nil, err
@@ -168,7 +156,7 @@ func (s *REST) Get(ctx context.Context, name string, options *metav1.GetOptions)
 	return delegate.Get(ctx, name, *options, s.subResources...)
 }
 
-func (s *REST) Update(ctx context.Context, name string, objInfo rest.UpdatedObjectInfo, createValidation rest.ValidateObjectFunc, updateValidation rest.ValidateObjectUpdateFunc, forceAllowCreate bool, options *metav1.UpdateOptions) (runtime.Object, bool, error) {
+func (s *ForwardingREST) Update(ctx context.Context, name string, objInfo rest.UpdatedObjectInfo, createValidation rest.ValidateObjectFunc, updateValidation rest.ValidateObjectUpdateFunc, forceAllowCreate bool, options *metav1.UpdateOptions) (runtime.Object, bool, error) {
 	delegate, err := s.GetClientResource(ctx)
 	if err != nil {
 		return nil, false, err
@@ -203,7 +191,7 @@ func (s *REST) Update(ctx context.Context, name string, objInfo rest.UpdatedObje
 }
 
 // GetResetFields implements rest.ResetFieldsStrategy
-func (s *REST) GetResetFields() map[fieldpath.APIVersion]*fieldpath.Set {
+func (s *ForwardingREST) GetResetFields() map[fieldpath.APIVersion]*fieldpath.Set {
 	if s.resetFieldsStrategy == nil {
 		return nil
 	}
@@ -235,7 +223,7 @@ func shallowMapDeepCopy(in map[string]interface{}) map[string]interface{} {
 
 // StatusREST implements the REST endpoint for changing the status of a CustomResource
 type StatusREST struct {
-	mainREST *REST
+	mainREST *ForwardingREST
 }
 
 var _ = rest.Patcher(&StatusREST{})

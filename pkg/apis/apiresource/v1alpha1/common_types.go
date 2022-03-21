@@ -115,6 +115,15 @@ func (sr *SubResources) ImportFromCRDVersion(crdVersion *apiextensionsv1.CustomR
 	return sr
 }
 
+func (sr *SubResources) Contains(name string) bool {
+	for _, r := range *sr {
+		if r.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 type GroupVersion struct {
 	// +optional
 	Group   string `json:"group,omitempty"`

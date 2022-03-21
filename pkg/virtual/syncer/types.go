@@ -42,10 +42,15 @@ type APISetRetriever interface {
 	GetAPIs(locationKey string) APISet
 }
 
-type APISets map[string]APISet
+type WorkloadClusterAPI struct {
+	WorkspaceName string
+	LocationName  string
+	Spec          *apiresourcev1alpha1.CommonAPIResourceSpec
+}
 
-func (apiSets APISets) GetAPIs(locationKey string) APISet {
-	return apiSets[locationKey]
+type WorkloadClusterAPIWatcher interface {
+	Upsert(api WorkloadClusterAPI) error
+	Remove(api WorkloadClusterAPI) error
 }
 
 type ClientGetter interface {

@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/clusters"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
@@ -34,7 +35,6 @@ import (
 	apiresourceinformer "github.com/kcp-dev/kcp/pkg/client/informers/externalversions/apiresource/v1alpha1"
 	apiresourcelistersv1alpha1 "github.com/kcp-dev/kcp/pkg/client/listers/apiresource/v1alpha1"
 	"github.com/kcp-dev/kcp/pkg/virtual/syncer"
-	"k8s.io/client-go/tools/clusters"
 )
 
 // NewAPIReconciler returns a new controller which reconciles

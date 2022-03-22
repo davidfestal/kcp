@@ -32,23 +32,23 @@ type TypedTransformers map[schema.GroupVersionResource]Transformers
 type Transformers []Transformer
 
 type Transformer struct {
-	BeforeCreate func(ctx context.Context, obj *unstructured.Unstructured, options metav1.CreateOptions, subresources ...string) (context.Context, *unstructured.Unstructured, metav1.CreateOptions, []string, error)
-	AfterCreate  func(ctx context.Context, obj *unstructured.Unstructured, options metav1.CreateOptions, subresources []string, result *unstructured.Unstructured) (*unstructured.Unstructured, error)
+	BeforeCreate func(client dynamic.ResourceInterface, ctx context.Context, obj *unstructured.Unstructured, options metav1.CreateOptions, subresources ...string) (context.Context, *unstructured.Unstructured, metav1.CreateOptions, []string, error)
+	AfterCreate  func(client dynamic.ResourceInterface, ctx context.Context, obj *unstructured.Unstructured, options metav1.CreateOptions, subresources []string, result *unstructured.Unstructured) (*unstructured.Unstructured, error)
 
-	BeforeUpdate func(ctx context.Context, obj *unstructured.Unstructured, options metav1.UpdateOptions, subresources ...string) (context.Context, *unstructured.Unstructured, metav1.UpdateOptions, []string, error)
-	AfterUpdate  func(ctx context.Context, obj *unstructured.Unstructured, options metav1.UpdateOptions, subresources []string, result *unstructured.Unstructured) (*unstructured.Unstructured, error)
+	BeforeUpdate func(client dynamic.ResourceInterface, ctx context.Context, obj *unstructured.Unstructured, options metav1.UpdateOptions, subresources ...string) (context.Context, *unstructured.Unstructured, metav1.UpdateOptions, []string, error)
+	AfterUpdate  func(client dynamic.ResourceInterface, ctx context.Context, obj *unstructured.Unstructured, options metav1.UpdateOptions, subresources []string, result *unstructured.Unstructured) (*unstructured.Unstructured, error)
 
-	BeforeDelete           func(ctx context.Context, name string, options metav1.DeleteOptions, subresources ...string) (context.Context, string, metav1.DeleteOptions, []string, error)
-	BeforeDeleteCollection func(ctx context.Context, options metav1.DeleteOptions, listOptions metav1.ListOptions) (context.Context, metav1.DeleteOptions, metav1.ListOptions, error)
+	BeforeDelete           func(client dynamic.ResourceInterface, ctx context.Context, name string, options metav1.DeleteOptions, subresources ...string) (context.Context, string, metav1.DeleteOptions, []string, error)
+	BeforeDeleteCollection func(client dynamic.ResourceInterface, ctx context.Context, options metav1.DeleteOptions, listOptions metav1.ListOptions) (context.Context, metav1.DeleteOptions, metav1.ListOptions, error)
 
-	BeforeGet func(ctx context.Context, name string, options metav1.GetOptions, subresources ...string) (context.Context, string, metav1.GetOptions, []string, error)
-	AfterGet  func(ctx context.Context, name string, options metav1.GetOptions, subresources []string, result *unstructured.Unstructured) (*unstructured.Unstructured, error)
+	BeforeGet func(client dynamic.ResourceInterface, ctx context.Context, name string, options metav1.GetOptions, subresources ...string) (context.Context, string, metav1.GetOptions, []string, error)
+	AfterGet  func(client dynamic.ResourceInterface, ctx context.Context, name string, options metav1.GetOptions, subresources []string, result *unstructured.Unstructured) (*unstructured.Unstructured, error)
 
-	BeforeList func(ctx context.Context, opts metav1.ListOptions) (context.Context, metav1.ListOptions, error)
-	AfterList  func(ctx context.Context, opts metav1.ListOptions, result *unstructured.UnstructuredList) (*unstructured.UnstructuredList, error)
+	BeforeList func(client dynamic.ResourceInterface, ctx context.Context, opts metav1.ListOptions) (context.Context, metav1.ListOptions, error)
+	AfterList  func(client dynamic.ResourceInterface, ctx context.Context, opts metav1.ListOptions, result *unstructured.UnstructuredList) (*unstructured.UnstructuredList, error)
 
-	BeforeWatch func(ctx context.Context, opts metav1.ListOptions) (context.Context, metav1.ListOptions, error)
-	AfterWatch  func(ctx context.Context, opts metav1.ListOptions, result watch.Interface) (watch.Interface, error)
+	BeforeWatch func(client dynamic.ResourceInterface, ctx context.Context, opts metav1.ListOptions) (context.Context, metav1.ListOptions, error)
+	AfterWatch  func(client dynamic.ResourceInterface, ctx context.Context, opts metav1.ListOptions, result watch.Interface) (watch.Interface, error)
 }
 
 type TransformingClient struct {
@@ -63,7 +63,7 @@ func (tc *TransformingClient) Create(ctx context.Context, obj *unstructured.Unst
 		if action == nil {
 			continue
 		}
-		ctx, obj, options, subresources, err = action(ctx, obj, options, subresources...)
+		ctx, obj, options, subresources, err = action(tc.Client, ctx, obj, options, subresources...)
 		if err != nil {
 			return nil, err
 		}
@@ -77,7 +77,7 @@ func (tc *TransformingClient) Create(ctx context.Context, obj *unstructured.Unst
 		if action == nil {
 			continue
 		}
-		result, err = action(ctx, obj, options, subresources, result)
+		result, err = action(tc.Client, ctx, obj, options, subresources, result)
 		if err != nil {
 			return result, err
 		}
@@ -91,7 +91,7 @@ func (tc *TransformingClient) Update(ctx context.Context, obj *unstructured.Unst
 		if action == nil {
 			continue
 		}
-		ctx, obj, options, subresources, err = action(ctx, obj, options, subresources...)
+		ctx, obj, options, subresources, err = action(tc.Client, ctx, obj, options, subresources...)
 		if err != nil {
 			return nil, err
 		}
@@ -105,7 +105,7 @@ func (tc *TransformingClient) Update(ctx context.Context, obj *unstructured.Unst
 		if action == nil {
 			continue
 		}
-		result, err = action(ctx, obj, options, subresources, result)
+		result, err = action(tc.Client, ctx, obj, options, subresources, result)
 		if err != nil {
 			return result, err
 		}
@@ -128,7 +128,7 @@ func (tc *TransformingClient) Get(ctx context.Context, name string, options meta
 		if action == nil {
 			continue
 		}
-		ctx, name, options, subresources, err = action(ctx, name, options, subresources...)
+		ctx, name, options, subresources, err = action(tc.Client, ctx, name, options, subresources...)
 		if err != nil {
 			return nil, err
 		}
@@ -142,7 +142,7 @@ func (tc *TransformingClient) Get(ctx context.Context, name string, options meta
 		if action == nil {
 			continue
 		}
-		result, err = action(ctx, name, options, subresources, result)
+		result, err = action(tc.Client, ctx, name, options, subresources, result)
 		if err != nil {
 			return result, err
 		}
@@ -156,7 +156,7 @@ func (tc *TransformingClient) List(ctx context.Context, opts metav1.ListOptions)
 		if action == nil {
 			continue
 		}
-		ctx, opts, err = action(ctx, opts)
+		ctx, opts, err = action(tc.Client, ctx, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -170,7 +170,7 @@ func (tc *TransformingClient) List(ctx context.Context, opts metav1.ListOptions)
 		if action == nil {
 			continue
 		}
-		result, err = action(ctx, opts, result)
+		result, err = action(tc.Client, ctx, opts, result)
 		if err != nil {
 			return result, err
 		}
@@ -184,7 +184,7 @@ func (tc *TransformingClient) Watch(ctx context.Context, opts metav1.ListOptions
 		if action == nil {
 			continue
 		}
-		ctx, opts, err = action(ctx, opts)
+		ctx, opts, err = action(tc.Client, ctx, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -198,7 +198,7 @@ func (tc *TransformingClient) Watch(ctx context.Context, opts metav1.ListOptions
 		if action == nil {
 			continue
 		}
-		result, err = action(ctx, opts, result)
+		result, err = action(tc.Client, ctx, opts, result)
 		if err != nil {
 			return result, err
 		}

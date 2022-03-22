@@ -107,7 +107,6 @@ func BuildVirtualWorkspace(rootPathPrefix string, dynamicClusterClient dynamic.C
 			negotiatedAPIResourceInformer := wildcardKcpInformers.Apiresource().V1alpha1().NegotiatedAPIResources()
 
 			genericTransformers := transforming.Transformers{
-				//				AddWorkloadClusterLabelSelector(),
 			}
 
 			installedAPIs = newInstalledAPIs(func(workspaceName string, spec *apiresourcev1alpha1.CommonAPIResourceSpec) (apidefs.APIDefinition, error) {

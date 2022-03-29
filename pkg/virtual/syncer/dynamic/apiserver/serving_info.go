@@ -301,7 +301,7 @@ func CreateServingInfoFor(genericConfig genericapiserver.CompletedConfig, logica
 	statusStorage, statusEnabled := subresourceStorages["status"]
 	if statusEnabled {
 		// shallow copy
-		statusScope := *requestScope
+		statusScope = *requestScope
 		statusScope.Subresource = "status"
 		statusScope.Namer = handlers.ContextBasedNaming{
 			SelfLinker:         meta.NewAccessor(),

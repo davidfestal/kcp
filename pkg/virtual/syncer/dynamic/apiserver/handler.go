@@ -112,19 +112,19 @@ func (r *resourceHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	if !requestInfo.IsResourceRequest {
 		pathParts := splitPath(requestInfo.Path)
-		// only match /apis/<group>/<version>
-		// only registered under /apis
-		if len(pathParts) == 3 {
+		// only match /apis/<group>/<version> or /api/<version>
+		if len(pathParts) == 3 && pathParts[0] == "apis" ||
+			len(pathParts) == 2 && pathParts[0] == "api" {
 			r.versionDiscoveryHandler.ServeHTTP(w, req)
 			return
 		}
 		// only match /apis/<group>
-		if len(pathParts) == 2 {
+		if len(pathParts) == 2 && pathParts[0] == "apis" {
 			r.groupDiscoveryHandler.ServeHTTP(w, req)
 			return
 		}
 		// only match /apis
-		if len(pathParts) == 1 {
+		if len(pathParts) == 1 && pathParts[0] == "apis" {
 			r.rootDiscoveryHandler.ServeHTTP(w, req)
 			return
 		}

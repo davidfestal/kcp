@@ -41,16 +41,22 @@ type versionDiscoveryHandler struct {
 
 func (r *versionDiscoveryHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	pathParts := splitPath(req.URL.Path)
-	// only match /apis/<group>/<version>
-	if len(pathParts) != 3 || pathParts[0] != "apis" {
+	var requestedGroup string
+	var requestedVersion string
+
+	// only match /apis/<group>/<version> or /api/<version>
+	if len(pathParts) == 3 && pathParts[0] == "apis" {
+		requestedGroup = pathParts[1]
+		requestedVersion = pathParts[2]
+	} else if len(pathParts) == 2 && pathParts[0] == "api" {
+		requestedGroup = ""
+		requestedVersion = pathParts[1]
+	} else {
 		r.delegate.ServeHTTP(w, req)
 		return
 	}
 
 	ctx := req.Context()
-
-	requestedGroup := pathParts[1]
-	requestedVersion := pathParts[2]
 
 	apiDomainKey := ctx.Value(apidefs.APIDomainKeyContextKey).(string)
 

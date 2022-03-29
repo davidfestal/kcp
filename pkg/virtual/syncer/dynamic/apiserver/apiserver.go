@@ -18,7 +18,6 @@ package apiserver
 
 import (
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/emicklei/go-restful"
@@ -27,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/apiserver/pkg/endpoints/discovery"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 
 	virtualcontext "github.com/kcp-dev/kcp/pkg/virtual/framework/context"
@@ -100,7 +100,7 @@ func (c completedConfig) New(virtualWorkspaceName string, delegationTarget gener
 
 	director := genericServer.Handler.Director
 	genericServer.Handler.Director = http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		if vwName := r.Context().Value(virtualcontext.VirtualWorkspaceNameKey); vwName != nil && r.URL.Path != "/api" && !strings.HasPrefix(r.URL.Path, "/api/") {
+		if vwName := r.Context().Value(virtualcontext.VirtualWorkspaceNameKey); vwName != nil {
 			if vwNameString, isString := vwName.(string); isString && vwNameString == virtualWorkspaceName {
 				director.ServeHTTP(rw, r)
 				return
@@ -157,18 +157,23 @@ func (c completedConfig) New(virtualWorkspaceName string, delegationTarget gener
 	}
 
 	s.GenericAPIServer.Handler.GoRestfulContainer.Filter(func(req *restful.Request, resp *restful.Response, chain *restful.FilterChain) {
-		if req.Request.URL.Path != "/apis" && req.Request.URL.Path != "/apis/" {
+		pathParts := splitPath(req.Request.URL.Path)
+		if len(pathParts) > 0 && pathParts[0] == "apis" ||
+			len(pathParts) > 1 && pathParts[0] == "api" {
+			crdHandler.ServeHTTP(resp.ResponseWriter, req.Request)
+		} else {
 			chain.ProcessFilter(req, resp)
-			return
 		}
-		rootDiscoveryHandler.ServeHTTP(resp.ResponseWriter, req.Request)
 	})
+
+	s.GenericAPIServer.Handler.GoRestfulContainer.Add(discovery.NewLegacyRootAPIHandler(c.GenericConfig.DiscoveryAddresses, s.GenericAPIServer.Serializer, "/api").WebService())
+
 	s.GenericAPIServer.Handler.NonGoRestfulMux.Handle("/apis", crdHandler)
 	s.GenericAPIServer.Handler.NonGoRestfulMux.HandlePrefix("/apis/", crdHandler)
-	// HACK: Added to allow serving core resources registered through CRDs (for the KCP scenario)
-	s.GenericAPIServer.Handler.NonGoRestfulMux.UnlistedHandlePrefix("/api/v1/", crdHandler)
+	s.GenericAPIServer.Handler.NonGoRestfulMux.Handle("/api/v1", crdHandler)
+	s.GenericAPIServer.Handler.NonGoRestfulMux.HandlePrefix("/api/v1/", crdHandler)
 
-	// TODO: plug OpenAPI
+	// TODO: plug OpenAPI if necessary
 
 	return s, nil
 }

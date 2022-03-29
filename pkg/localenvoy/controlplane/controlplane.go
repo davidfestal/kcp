@@ -50,18 +50,6 @@ const (
 	ToEnvoyLabel = "ingress.kcp.dev/envoy"
 )
 
-func init() {
-	var err error
-
-	// Create the selector
-	envoyReadySelector, err = labels.Parse(ToEnvoyLabel + "=" + "true")
-	if err != nil {
-		klog.Fatalf("failed to parse selector: %v", err)
-	}
-}
-
-var envoyReadySelector labels.Selector
-
 // EnvoyControlPlane is an envoy control plane that handles configuration update
 // and the management of the xDS server.
 type EnvoyControlPlane struct {
@@ -133,15 +121,15 @@ func (ecp *EnvoyControlPlane) UpdateEnvoyConfig(ctx context.Context) error {
 	clustersResources := make([]cachetypes.Resource, 0)
 	virtualhosts := make([]*envoyroutev3.VirtualHost, 0)
 
-	ingresses, err := ecp.ingressLister.List(envoyReadySelector)
+	ingresses, err := ecp.ingressLister.List(labels.Everything())
 	if err != nil {
 		return err
 	}
 
-	for _, ingress := range ingresses {
-		ingclusters, ingvhosts := ecp.translator.translateIngress(ingress)
-		clustersResources = append(clustersResources, ingclusters...)
+	for _, rootIngress := range ingresses {
+		ingclusters, ingvhosts := ecp.translator.translateIngress(rootIngress)
 		virtualhosts = append(virtualhosts, ingvhosts...)
+		clustersResources = append(clustersResources, ingclusters...)
 	}
 
 	routeConfig := ecp.translator.newRouteConfig("defaultroute", virtualhosts)

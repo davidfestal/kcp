@@ -33,7 +33,6 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 	networkinglisters "k8s.io/client-go/listers/networking/v1"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/tools/clusters"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 )
@@ -87,13 +86,6 @@ func NewController(
 				}
 			}
 
-			// If it's a deleted leaf, enqueue the root
-			if rootIngressKey := rootIngressKeyFor(ingress); rootIngressKey != "" {
-				c.queue.Add(rootIngressKey)
-				return
-			}
-
-			// Otherwise, enqueue the leaf itself
 			c.enqueue(ingress)
 		},
 	})
@@ -233,12 +225,4 @@ func (c *Controller) ingressesFromService(obj interface{}) {
 		klog.Infof("tracked service %q triggered Ingress %q reconciliation", service.Name, ingress)
 		c.queue.Add(ingress)
 	}
-}
-
-func rootIngressKeyFor(ingress metav1.Object) string {
-	if ingress.GetLabels()[OwnedByCluster] != "" && ingress.GetLabels()[OwnedByNamespace] != "" && ingress.GetLabels()[OwnedByIngress] != "" {
-		return ingress.GetLabels()[OwnedByNamespace] + "/" + clusters.ToClusterAwareKey(UnescapeClusterNameLabel(ingress.GetLabels()[OwnedByCluster]), ingress.GetLabels()[OwnedByIngress])
-	}
-
-	return ""
 }

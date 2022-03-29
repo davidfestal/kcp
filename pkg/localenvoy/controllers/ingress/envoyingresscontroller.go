@@ -24,18 +24,16 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	networkinginformers "k8s.io/client-go/informers/networking/v1"
 	"k8s.io/client-go/kubernetes"
 	networkinglisters "k8s.io/client-go/listers/networking/v1"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/tools/clusters"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
 	envoycontrolplane "github.com/kcp-dev/kcp/pkg/localenvoy/controlplane"
-	"github.com/kcp-dev/kcp/pkg/reconciler/ingresssplitter"
 )
 
 const controllerName = "kcp-envoy-ingress-status-aggregator"
@@ -60,8 +58,12 @@ func NewController(
 
 	// Watch for events related to Ingresses
 	ingressInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    func(obj interface{}) { c.enqueue(obj) },
-		UpdateFunc: func(_, obj interface{}) { c.enqueue(obj) },
+		AddFunc: func(obj interface{}) { c.enqueue(obj) },
+		UpdateFunc: func(oldObj, obj interface{}) {
+			if !equality.Semantic.DeepEqual(oldObj, obj) {
+				c.enqueue(obj)
+			}
+		},
 		DeleteFunc: func(obj interface{}) { c.enqueue(obj) },
 	})
 
@@ -86,30 +88,25 @@ type Controller struct {
 }
 
 func (c *Controller) enqueue(obj interface{}) {
-	ingress, ok := obj.(*networkingv1.Ingress)
+	_, ok := obj.(*networkingv1.Ingress)
 	if !ok {
 		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
 		if !ok {
-			runtime.HandleError(fmt.Errorf("unexpected object type: %T", obj))
+			utilruntime.HandleError(fmt.Errorf("unexpected object type: %T", obj))
 			return
 		}
 
-		ingress, ok = tombstone.Obj.(*networkingv1.Ingress)
+		_, ok = tombstone.Obj.(*networkingv1.Ingress)
 		if !ok {
-			runtime.HandleError(fmt.Errorf("unexpected object type: %T", obj))
+			utilruntime.HandleError(fmt.Errorf("unexpected object type: %T", obj))
 			return
 		}
-	}
-
-	// If it's a leaf, also enqueue the root
-	if rootIngressKey := rootIngressKeyFor(ingress); rootIngressKey != "" {
-		c.queue.Add(rootIngressKey)
 	}
 
 	// Enqueue the key from obj (could be root or leaf)
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
-		runtime.HandleError(err)
+		utilruntime.HandleError(err)
 		return
 	}
 	c.queue.Add(key)
@@ -117,7 +114,7 @@ func (c *Controller) enqueue(obj interface{}) {
 
 // Start starts the controller workers.
 func (c *Controller) Start(ctx context.Context, numThreads int) {
-	defer runtime.HandleCrash()
+	defer utilruntime.HandleCrash()
 	defer c.queue.ShutDown()
 
 	klog.InfoS("Starting workers", "controller", controllerName)
@@ -148,7 +145,7 @@ func (c *Controller) processNextWorkItem(ctx context.Context) bool {
 	defer c.queue.Done(key)
 
 	if requeue, err := c.process(ctx, key); err != nil {
-		runtime.HandleError(fmt.Errorf("failed to sync %q: %w", key, err))
+		utilruntime.HandleError(fmt.Errorf("failed to sync %q: %w", key, err))
 		c.queue.AddRateLimited(key)
 		return true
 	} else if requeue {
@@ -184,21 +181,11 @@ func (c *Controller) process(ctx context.Context, key string) (requeue bool, err
 	if err := c.reconcile(ctx, current); err != nil {
 		return false, err
 	}
+
 	if !equality.Semantic.DeepEqual(previous, current) {
-		if current.Labels[envoycontrolplane.ToEnvoyLabel] == "" {
-			// If it's a root, we need to patch only status
-			// TODO(jmprusi): Move to patch instead of Update.
-			_, err := c.client.Cluster(current.ClusterName).NetworkingV1().Ingresses(current.Namespace).UpdateStatus(ctx, current, metav1.UpdateOptions{})
-			if err != nil {
-				return false, err
-			}
-		} else {
-			// If it's a leaf, we need to patch only non-status (to set labels)
-			// TODO(jmprusi): Move to patch instead of Update.
-			_, err := c.client.Cluster(current.ClusterName).NetworkingV1().Ingresses(current.Namespace).Update(ctx, current, metav1.UpdateOptions{})
-			if err != nil {
-				return false, err
-			}
+		_, err := c.client.Cluster(current.ClusterName).NetworkingV1().Ingresses(current.Namespace).UpdateStatus(ctx, current, metav1.UpdateOptions{})
+		if err != nil {
+			return false, err
 		}
 	}
 
@@ -208,12 +195,4 @@ func (c *Controller) process(ctx context.Context, key string) (requeue bool, err
 	}
 
 	return false, nil
-}
-
-func rootIngressKeyFor(ingress metav1.Object) string {
-	if ingress.GetLabels()[ingresssplitter.OwnedByCluster] != "" && ingress.GetLabels()[ingresssplitter.OwnedByNamespace] != "" && ingress.GetLabels()[ingresssplitter.OwnedByIngress] != "" {
-		return ingress.GetLabels()[ingresssplitter.OwnedByNamespace] + "/" + clusters.ToClusterAwareKey(ingresssplitter.UnescapeClusterNameLabel(ingress.GetLabels()[ingresssplitter.OwnedByCluster]), ingress.GetLabels()[ingresssplitter.OwnedByIngress])
-	}
-
-	return ""
 }

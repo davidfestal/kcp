@@ -35,9 +35,19 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
+
+	"github.com/kcp-dev/kcp/pkg/virtual/syncer/strategies"
 )
+
+var scheme *runtime.Scheme = runtime.NewScheme()
+
+func init() {
+	networkingv1.AddToScheme(scheme)
+}
 
 // translator takes care of translating the ingress objects into Envoy resources.
 type translator struct {
@@ -53,23 +63,44 @@ func newTranslator(envoyListenPort uint) *translator {
 
 // translateIngress has a "simple" implementation of a networkingv1.Ingress parser to translation to Envoy resources.
 // It traverses the ingress spec object and creates a list of Envoy resources.
-func (t *translator) translateIngress(ingress *networkingv1.Ingress) ([]cachetypes.Resource, []*envoyroutev3.VirtualHost) {
+func (t *translator) translateIngress(rootIngress *networkingv1.Ingress) ([]cachetypes.Resource, []*envoyroutev3.VirtualHost) {
+
 	// TODO(jmprusi): Hardcoded port, also, not TLS support. Review
 	endpoints := make([]*envoyendpointv3.LbEndpoint, 0)
-	for _, lb := range ingress.Status.LoadBalancer.Ingress {
-		endpoint := &envoyendpointv3.LbEndpoint{}
-		if lb.Hostname != "" {
-			endpoint = t.newLBEndpoint(lb.Hostname, 80)
-		} else if lb.IP != "" {
-			endpoint = t.newLBEndpoint(lb.IP, 80)
+
+	unstructured := &unstructured.Unstructured{}
+	err := scheme.Convert(rootIngress, unstructured, nil)
+	if err != nil {
+		klog.Errorf("Error getting location views for ingress %s: %v", rootIngress.Name, err)
+		return nil, nil
+	}
+	locationIngresses, err := strategies.GetLocations(unstructured)
+	if err != nil {
+		klog.Errorf("Error getting location views for ingress %s: %v", rootIngress.Name, err)
+		return nil, nil
+	}
+	for _, locationIngressUnstr := range locationIngresses {
+		var locationIngress networkingv1.Ingress
+		if err := scheme.Convert(&locationIngressUnstr, &locationIngress, nil); err != nil {
+			klog.Errorf("Error getting location views for ingress %s: %v", rootIngress.Name, err)
+			return nil, nil
 		}
-		endpoints = append(endpoints, endpoint)
+
+		for _, lb := range locationIngress.Status.LoadBalancer.Ingress {
+			endpoint := &envoyendpointv3.LbEndpoint{}
+			if lb.Hostname != "" {
+				endpoint = t.newLBEndpoint(lb.Hostname, 80)
+			} else if lb.IP != "" {
+				endpoint = t.newLBEndpoint(lb.IP, 80)
+			}
+			endpoints = append(endpoints, endpoint)
+		}
 	}
 
 	//TODO(jmprusi): HTTP2 is set to false always, also allow for configuration of the timeout
-	ingressKey, err := cache.MetaNamespaceKeyFunc(ingress)
+	ingressKey, err := cache.MetaNamespaceKeyFunc(rootIngress)
 	if err != nil {
-		klog.Errorf("Error getting key for ingress %s: %v", ingress.Name, err)
+		klog.Errorf("Error getting key for ingress %s: %v", rootIngress.Name, err)
 		return nil, nil
 	}
 	cluster := t.newCluster(ingressKey, 2*time.Second, endpoints, envoyclusterv3.Cluster_STRICT_DNS)
@@ -80,7 +111,7 @@ func (t *translator) translateIngress(ingress *networkingv1.Ingress) ([]cachetyp
 	domains := make([]string, 0)
 
 	//TODO(jmprusi): We are ignoring the path type, we need to review this.
-	for i, rule := range ingress.Spec.Rules {
+	for i, rule := range rootIngress.Spec.Rules {
 		// TODO(jmprusi): If the host is empty we just ignore the rule, not ideal.
 		if rule.HTTP.Paths == nil || rule.Host == "" {
 			break

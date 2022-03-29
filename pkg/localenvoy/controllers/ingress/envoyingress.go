@@ -25,41 +25,20 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/klog/v2"
-
-	envoycontrolplane "github.com/kcp-dev/kcp/pkg/localenvoy/controlplane"
-	nscontroller "github.com/kcp-dev/kcp/pkg/reconciler/namespace"
 )
 
 // reconcile is triggered on every change to an ingress resource.
 func (c *Controller) reconcile(ctx context.Context, ingress *networkingv1.Ingress) error {
 	klog.InfoS("reconciling Ingress", "ClusterName", ingress.ClusterName, "Namespace", ingress.Namespace, "Name", ingress.Name)
 
-	if ingress.Labels[nscontroller.ClusterLabel] == "" {
-		// Root
-		if len(ingress.Status.LoadBalancer.Ingress) > 0 && ingress.Status.LoadBalancer.Ingress[0].Hostname != "" {
-			// Already set - never changes - do nothing
-			return nil
-		}
-
-		ingress.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{
-			Hostname: generateStatusHost(c.domain, ingress),
-		}}
-
+	if len(ingress.Status.LoadBalancer.Ingress) > 0 && ingress.Status.LoadBalancer.Ingress[0].Hostname != "" {
+		// Already set - never changes - do nothing
 		return nil
 	}
 
-	// Leaf:
-
-	// If the Ingress has no status, that means that the ingress controller on the pcluster has
-	// not picked up this leaf yet, so we should skip it.
-	if len(ingress.Status.LoadBalancer.Ingress) == 0 {
-		klog.Infof("Ingress %s - %s/%s has no loadbalancer status set, skipping.", ingress.ClusterName, ingress.Namespace, ingress.Name)
-		return nil
-	}
-
-	// Label the received ingress for envoy, as we want the controlplane to use this leaf
-	// for updating the envoy config.
-	ingress.Labels[envoycontrolplane.ToEnvoyLabel] = "true"
+	ingress.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{
+		Hostname: generateStatusHost(c.domain, ingress),
+	}}
 
 	return nil
 }

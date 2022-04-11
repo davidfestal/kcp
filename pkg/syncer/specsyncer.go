@@ -194,8 +194,16 @@ func (c *Controller) applyToDownstream(ctx context.Context, eventType watch.Even
 	// Strip owner references, to avoid orphaning by broken references,
 	// and make sure cascading deletion is only performed once upstream.
 	downstreamObj.SetOwnerReferences(nil)
-	// Strip finalizers to avoid the deletion of the downstream resource from being blocked.
-	downstreamObj.SetFinalizers(nil)
+
+	finalizers := downstreamObj.GetFinalizers()
+	var newFinalizers []string
+	for _, f := range finalizers {
+		if f == syncer.SyncerFinalizer || f == "" {
+			continue
+		}
+		newFinalizers = append(newFinalizers, f)
+	}
+	downstreamObj.SetFinalizers(newFinalizers)
 
 	// Run name transformations on the downstreamObj.
 	transformName(downstreamObj, SyncDown)

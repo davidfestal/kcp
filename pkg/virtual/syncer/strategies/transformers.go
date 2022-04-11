@@ -45,6 +45,8 @@ func locationViewAnnotation(locationName string) string {
 }
 func locationViewTransformer(gvr schema.GroupVersionResource, syncStrategy SyncStrategy) transforming.Transformer {
 	return transforming.TransformsResource(
+		"LocationViewTransformer",
+
 		// Update from a syncer location object (status) to the virtual workspace resource
 		func(client dynamic.ResourceInterface, ctx context.Context, newLocationObject *unstructured.Unstructured, subresources ...string) (newKCPViewObject *unstructured.Unstructured, err error) {
 			workloadCluster, err := syncer.FromContext(ctx)
@@ -56,7 +58,7 @@ func locationViewTransformer(gvr schema.GroupVersionResource, syncStrategy SyncS
 			removeFromLocation := newLocationObject.GetDeletionTimestamp() != nil && numberOfFinalizers == 0
 
 			if bytes, err := yaml.Marshal(newLocationObject.UnstructuredContent()); err == nil {
-				klog.V(5).Infof("Before - Location Resource:\n%s", string(bytes))
+				klog.V(5).Infof("Before LocationViewTransformer - Location Resource:\n%s", string(bytes))
 			}
 
 			newLocationObjectJson, err := json.Marshal(newLocationObject.UnstructuredContent())
@@ -130,7 +132,7 @@ func locationViewTransformer(gvr schema.GroupVersionResource, syncStrategy SyncS
 			}
 			newKCPViewObject.SetAnnotations(newKCPViewAnnotations)
 
-			if bytes, err := yaml.Marshal(newLocationObject.UnstructuredContent()); err == nil {
+			if bytes, err := yaml.Marshal(newKCPViewObject.UnstructuredContent()); err == nil {
 				klog.V(5).Infof("Before - New KCP Resource:\n%s", string(bytes))
 			}
 

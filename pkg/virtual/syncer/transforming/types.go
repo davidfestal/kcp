@@ -19,6 +19,7 @@ package transforming
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -26,12 +27,15 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/klog/v2"
 )
 
 type TypedTransformers map[schema.GroupVersionResource]Transformers
 type Transformers []Transformer
 
 type Transformer struct {
+	Name string
+
 	BeforeCreate func(client dynamic.ResourceInterface, ctx context.Context, obj *unstructured.Unstructured, options metav1.CreateOptions, subresources ...string) (context.Context, *unstructured.Unstructured, metav1.CreateOptions, []string, error)
 	AfterCreate  func(client dynamic.ResourceInterface, ctx context.Context, obj *unstructured.Unstructured, options metav1.CreateOptions, subresources []string, result *unstructured.Unstructured) (*unstructured.Unstructured, error)
 
@@ -54,6 +58,32 @@ type Transformer struct {
 type TransformingClient struct {
 	Transformations Transformers
 	Client          dynamic.ResourceInterface
+	Resource        schema.GroupVersionResource
+	Namespace       string
+}
+
+func (tc *TransformingClient) objectCallMessage(transformerName, action string, obj *unstructured.Unstructured, subresources ...string) string {
+	name := "nil"
+	if obj != nil {
+		name = obj.GetName()
+	}
+	return tc.namedCallMessage(transformerName, action, name, subresources...)
+}
+
+func (tc *TransformingClient) namedCallMessage(transformerName, action string, name string, subresources ...string) string {
+	return fmt.Sprintf("%s(%s): %s/%s(%s) - %v ", action, transformerName, tc.Namespace, name, tc.Resource, subresources)
+}
+
+func (tc *TransformingClient) logObjectCall(transformerName, action string, obj *unstructured.Unstructured, subresources ...string) {
+	klog.Info(tc.objectCallMessage(transformerName, action, obj, subresources...))
+}
+
+func (tc *TransformingClient) logNamedCall(transformerName, action string, name string, subresources ...string) {
+	klog.Info(tc.namedCallMessage(transformerName, action, name, subresources...))
+}
+
+func (tc *TransformingClient) logCallError(transformerName, action string, err error) {
+	klog.Errorf("Transformation Error on %s(%s): %v", action, transformerName, err)
 }
 
 func (tc *TransformingClient) Create(ctx context.Context, obj *unstructured.Unstructured, options metav1.CreateOptions, subresources ...string) (*unstructured.Unstructured, error) {
@@ -63,8 +93,10 @@ func (tc *TransformingClient) Create(ctx context.Context, obj *unstructured.Unst
 		if action == nil {
 			continue
 		}
+		tc.logObjectCall(transformer.Name, "BeforeCreate", obj, subresources...)
 		ctx, obj, options, subresources, err = action(tc.Client, ctx, obj, options, subresources...)
 		if err != nil {
+			tc.logCallError(transformer.Name, "BeforeCreate", err)
 			return nil, err
 		}
 	}
@@ -77,8 +109,10 @@ func (tc *TransformingClient) Create(ctx context.Context, obj *unstructured.Unst
 		if action == nil {
 			continue
 		}
+		tc.logObjectCall(transformer.Name, "AfterCreate", obj, subresources...)
 		result, err = action(tc.Client, ctx, obj, options, subresources, result)
 		if err != nil {
+			tc.logCallError(transformer.Name, "AfterCreate", err)
 			return result, err
 		}
 	}
@@ -91,8 +125,10 @@ func (tc *TransformingClient) Update(ctx context.Context, obj *unstructured.Unst
 		if action == nil {
 			continue
 		}
+		tc.logObjectCall(transformer.Name, "BeforeUpdate", obj, subresources...)
 		ctx, obj, options, subresources, err = action(tc.Client, ctx, obj, options, subresources...)
 		if err != nil {
+			tc.logCallError(transformer.Name, "BeforeUpdate", err)
 			return nil, err
 		}
 	}
@@ -105,8 +141,10 @@ func (tc *TransformingClient) Update(ctx context.Context, obj *unstructured.Unst
 		if action == nil {
 			continue
 		}
+		tc.logObjectCall(transformer.Name, "AfterUpdate", obj, subresources...)
 		result, err = action(tc.Client, ctx, obj, options, subresources, result)
 		if err != nil {
+			tc.logCallError(transformer.Name, "AfterUpdate", err)
 			return result, err
 		}
 	}
@@ -128,8 +166,10 @@ func (tc *TransformingClient) Get(ctx context.Context, name string, options meta
 		if action == nil {
 			continue
 		}
+		tc.logNamedCall(transformer.Name, "BeforeGet", name, subresources...)
 		ctx, name, options, subresources, err = action(tc.Client, ctx, name, options, subresources...)
 		if err != nil {
+			tc.logCallError(transformer.Name, "BeforeGet", err)
 			return nil, err
 		}
 	}
@@ -142,8 +182,10 @@ func (tc *TransformingClient) Get(ctx context.Context, name string, options meta
 		if action == nil {
 			continue
 		}
+		tc.logNamedCall(transformer.Name, "AfterGet", name, subresources...)
 		result, err = action(tc.Client, ctx, name, options, subresources, result)
 		if err != nil {
+			tc.logCallError(transformer.Name, "AfterGet", err)
 			return result, err
 		}
 	}
@@ -156,8 +198,10 @@ func (tc *TransformingClient) List(ctx context.Context, opts metav1.ListOptions)
 		if action == nil {
 			continue
 		}
+		tc.logNamedCall(transformer.Name, "BeforeList", opts.LabelSelector)
 		ctx, opts, err = action(tc.Client, ctx, opts)
 		if err != nil {
+			tc.logCallError(transformer.Name, "BeforeList", err)
 			return nil, err
 		}
 	}
@@ -170,8 +214,10 @@ func (tc *TransformingClient) List(ctx context.Context, opts metav1.ListOptions)
 		if action == nil {
 			continue
 		}
+		tc.logNamedCall(transformer.Name, "AfterList", opts.LabelSelector)
 		result, err = action(tc.Client, ctx, opts, result)
 		if err != nil {
+			tc.logCallError(transformer.Name, "AfterList", err)
 			return result, err
 		}
 	}
@@ -184,8 +230,10 @@ func (tc *TransformingClient) Watch(ctx context.Context, opts metav1.ListOptions
 		if action == nil {
 			continue
 		}
+		tc.logNamedCall(transformer.Name, "BeforeWatch", opts.LabelSelector)
 		ctx, opts, err = action(tc.Client, ctx, opts)
 		if err != nil {
+			tc.logCallError(transformer.Name, "BeforeWatch", err)
 			return nil, err
 		}
 	}
@@ -198,8 +246,10 @@ func (tc *TransformingClient) Watch(ctx context.Context, opts metav1.ListOptions
 		if action == nil {
 			continue
 		}
+		tc.logNamedCall(transformer.Name, "AfterWatch", opts.LabelSelector)
 		result, err = action(tc.Client, ctx, opts, result)
 		if err != nil {
+			tc.logCallError(transformer.Name, "AfterWatch", err)
 			return result, err
 		}
 	}

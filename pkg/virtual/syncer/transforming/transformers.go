@@ -27,11 +27,12 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/klog/v2"
 )
 
 type UpdateSelectorsFunc func(ctx context.Context, labelSelector labels.Selector, fieldSelector fields.Selector) (labels.Selector, fields.Selector, error)
 
-func TransformsSelectors(updateFunc UpdateSelectorsFunc) Transformer {
+func TransformsSelectors(transformerName string, updateFunc UpdateSelectorsFunc) Transformer {
 
 	updateSelectorString := func(ctx context.Context, labelSelectorStr string, fieldSelectorStr string) (newLabelSelectorStr string, newFieldSelectorStr string, err error) {
 		labelSelector, err := labels.Parse(labelSelectorStr)
@@ -52,6 +53,7 @@ func TransformsSelectors(updateFunc UpdateSelectorsFunc) Transformer {
 	}
 
 	return Transformer{
+		Name: transformerName,
 		BeforeList: func(client dynamic.ResourceInterface, ctx context.Context, opts metav1.ListOptions) (context.Context, metav1.ListOptions, error) {
 			newLabelSelector, newFieldSelector, err := updateSelectorString(ctx, opts.LabelSelector, opts.FieldSelector)
 			if err != nil {
@@ -76,19 +78,62 @@ func TransformsSelectors(updateFunc UpdateSelectorsFunc) Transformer {
 type TransformResourceBeforeFunc func(client dynamic.ResourceInterface, ctx context.Context, resource *unstructured.Unstructured, subresources ...string) (transformed *unstructured.Unstructured, err error)
 type TransformResourceAfterFunc func(client dynamic.ResourceInterface, ctx context.Context, resource *unstructured.Unstructured, eventType *watch.EventType, subresources ...string) (transformed *unstructured.Unstructured, err error)
 
-func TransformsResource(before TransformResourceBeforeFunc, after TransformResourceAfterFunc) Transformer {
-	t := Transformer{}
+func TransformsResource(transformerName string, before TransformResourceBeforeFunc, after TransformResourceAfterFunc) Transformer {
+	t := Transformer{
+		Name: transformerName,
+	}
+
+	var loggedAfter func(action string) TransformResourceAfterFunc
+	var loggedBefore func(action string) TransformResourceBeforeFunc
+
+	if before != nil {
+		loggedBefore = func(action string) TransformResourceBeforeFunc {
+			return func(client dynamic.ResourceInterface, ctx context.Context, resource *unstructured.Unstructured, subresources ...string) (transformed *unstructured.Unstructured, err error) {
+				name := "nil"
+				if resource != nil {
+					name = resource.GetName()
+				}
+				klog.Infof("Before%s(%s-ResourceTransformation) %s - %v", action, t.Name, name, subresources)
+				transformed, err = before(client, ctx, resource, subresources...)
+				if err != nil {
+					klog.Errorf("%s-ResourceTransformation Error on %s(Before%s): %v", t.Name, name, action, err)
+				}
+				return transformed, err
+			}
+		}
+	}
+
+	if after != nil {
+		loggedAfter = func(action string) TransformResourceAfterFunc {
+			return func(client dynamic.ResourceInterface, ctx context.Context, resource *unstructured.Unstructured, eventType *watch.EventType, subresources ...string) (transformed *unstructured.Unstructured, err error) {
+				name := "nil"
+				if resource != nil {
+					name = resource.GetName()
+				}
+				event := ""
+				if eventType != nil {
+					event = string(*eventType)
+				}
+				klog.Infof("After%s(%s-ResourceTransformation) %s - %s - %v", action, t.Name, name, event, subresources)
+				transformed, err = after(client, ctx, resource, eventType, subresources...)
+				if err != nil {
+					klog.Errorf("%s-ResourceTransformation Error on %s(After%s): %v", t.Name, name, action, err)
+				}
+				return transformed, err
+			}
+		}
+	}
 
 	if before != nil {
 		t.BeforeCreate = func(client dynamic.ResourceInterface, ctx context.Context, obj *unstructured.Unstructured, options metav1.CreateOptions, subresources ...string) (context.Context, *unstructured.Unstructured, metav1.CreateOptions, []string, error) {
-			if transformedResource, err := before(client, ctx, obj, subresources...); err != nil {
+			if transformedResource, err := loggedBefore("Create")(client, ctx, obj, subresources...); err != nil {
 				return ctx, obj, options, subresources, err
 			} else {
 				return ctx, transformedResource, options, subresources, nil
 			}
 		}
 		t.BeforeUpdate = func(client dynamic.ResourceInterface, ctx context.Context, obj *unstructured.Unstructured, options metav1.UpdateOptions, subresources ...string) (context.Context, *unstructured.Unstructured, metav1.UpdateOptions, []string, error) {
-			if transformedResource, err := before(client, ctx, obj, subresources...); err != nil {
+			if transformedResource, err := loggedBefore("Update")(client, ctx, obj, subresources...); err != nil {
 				return ctx, obj, options, subresources, err
 			} else {
 				return ctx, transformedResource, options, subresources, nil
@@ -97,14 +142,14 @@ func TransformsResource(before TransformResourceBeforeFunc, after TransformResou
 	}
 	if after != nil {
 		t.AfterCreate = func(client dynamic.ResourceInterface, ctx context.Context, obj *unstructured.Unstructured, options metav1.CreateOptions, subresources []string, result *unstructured.Unstructured) (*unstructured.Unstructured, error) {
-			if transformedResource, err := after(client, ctx, obj, nil, subresources...); err != nil {
+			if transformedResource, err := loggedAfter("Create")(client, ctx, obj, nil, subresources...); err != nil {
 				return obj, err
 			} else {
 				return transformedResource, nil
 			}
 		}
 		t.AfterUpdate = func(client dynamic.ResourceInterface, ctx context.Context, obj *unstructured.Unstructured, options metav1.UpdateOptions, subresources []string, result *unstructured.Unstructured) (*unstructured.Unstructured, error) {
-			if transformedResource, err := after(client, ctx, obj, nil, subresources...); err != nil {
+			if transformedResource, err := loggedAfter("Update")(client, ctx, obj, nil, subresources...); err != nil {
 				return obj, err
 			} else {
 				return transformedResource, nil
@@ -112,7 +157,7 @@ func TransformsResource(before TransformResourceBeforeFunc, after TransformResou
 		}
 		// TODO: implement the delete, but for now we don't need it
 		t.AfterGet = func(client dynamic.ResourceInterface, ctx context.Context, name string, options metav1.GetOptions, subresources []string, result *unstructured.Unstructured) (*unstructured.Unstructured, error) {
-			if transformedResource, err := after(client, ctx, result, nil, subresources...); err != nil {
+			if transformedResource, err := loggedAfter("Get")(client, ctx, result, nil, subresources...); err != nil {
 				return nil, err
 			} else {
 				return transformedResource, nil
@@ -121,9 +166,10 @@ func TransformsResource(before TransformResourceBeforeFunc, after TransformResou
 		t.AfterList = func(client dynamic.ResourceInterface, ctx context.Context, opts metav1.ListOptions, result *unstructured.UnstructuredList) (*unstructured.UnstructuredList, error) {
 			transformedResult := result.DeepCopy()
 			transformedResult.Items = []unstructured.Unstructured{}
+			afterList := loggedAfter("List")
 			for _, item := range result.Items {
 				item := item
-				if transformed, err := after(client, ctx, &item, nil); err != nil {
+				if transformed, err := afterList(client, ctx, &item, nil); err != nil {
 					if kerrors.IsNotFound(err) {
 						continue
 					}
@@ -134,6 +180,7 @@ func TransformsResource(before TransformResourceBeforeFunc, after TransformResou
 			return transformedResult, nil
 		}
 		t.AfterWatch = func(client dynamic.ResourceInterface, ctx context.Context, opts metav1.ListOptions, result watch.Interface) (watch.Interface, error) {
+			afterWatchEvent := loggedAfter("WatchEvent")
 			transformingWatcher := NewTransformingWatcher(result, func(event watch.Event) (transformed watch.Event, skipped bool) {
 				transformed = event
 				eventType := event.Type
@@ -147,7 +194,7 @@ func TransformsResource(before TransformResourceBeforeFunc, after TransformResou
 							Message: "Watch expected a resource of type *unstructured.Unstructured",
 							Code:    500,
 						}
-					} else if transformedResource, err := after(client, ctx, resource, &eventType); err != nil {
+					} else if transformedResource, err := afterWatchEvent(client, ctx, resource, &eventType); err != nil {
 						if kerrors.IsNotFound(err) {
 							skipped = true
 						} else {

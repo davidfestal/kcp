@@ -32,7 +32,7 @@ import (
 )
 
 func RemoveWorkloadClusterLabelSelector() transforming.Transformer {
-	return transforming.TransformsSelectors(func(ctx context.Context, labelSelector labels.Selector, fieldSelector fields.Selector) (labels.Selector, fields.Selector, error) {
+	return transforming.TransformsSelectors("RemoveWorkloadClusterLabelSelector", func(ctx context.Context, labelSelector labels.Selector, fieldSelector fields.Selector) (labels.Selector, fields.Selector, error) {
 		newLabelSelector := labels.NewSelector()
 		reqs, _ := labelSelector.Requirements()
 		for _, req := range reqs {
@@ -46,7 +46,7 @@ func RemoveWorkloadClusterLabelSelector() transforming.Transformer {
 }
 
 func AddWorkloadClusterLabelSelector() transforming.Transformer {
-	return transforming.TransformsSelectors(func(ctx context.Context, labelSelector labels.Selector, fieldSelector fields.Selector) (labels.Selector, fields.Selector, error) {
+	return transforming.TransformsSelectors("AddWorkloadClusterLabelSelector", func(ctx context.Context, labelSelector labels.Selector, fieldSelector fields.Selector) (labels.Selector, fields.Selector, error) {
 		workloadCluster, err := syncer.FromContext(ctx)
 		if err != nil {
 			return nil, nil, err
@@ -58,7 +58,7 @@ func AddWorkloadClusterLabelSelector() transforming.Transformer {
 }
 
 func AddOldWorkloadClusterLabel() transforming.Transformer {
-	return transforming.TransformsResource(nil, func(client dynamic.ResourceInterface, ctx context.Context, resource *unstructured.Unstructured, eventType *watch.EventType, subresources ...string) (transformed *unstructured.Unstructured, err error) {
+	return transforming.TransformsResource("AddOldWorkloadClusterLabel", nil, func(client dynamic.ResourceInterface, ctx context.Context, resource *unstructured.Unstructured, eventType *watch.EventType, subresources ...string) (transformed *unstructured.Unstructured, err error) {
 		transformed = resource.DeepCopy()
 		workloadCluster, err := syncer.FromContext(ctx)
 		if err != nil {

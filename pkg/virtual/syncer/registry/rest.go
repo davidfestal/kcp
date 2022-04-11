@@ -97,8 +97,10 @@ func (s *ForwardingREST) GetClientResource(ctx context.Context) (dynamic.Resourc
 	}
 
 	var resourceClient dynamic.ResourceInterface
+	var namespace string
 	if s.createStrategy.NamespaceScoped() {
-		if namespace, ok := genericapirequest.NamespaceFrom(ctx); ok {
+		if ns, ok := genericapirequest.NamespaceFrom(ctx); ok {
+			namespace = ns
 			resourceClient = client.Resource(s.resource).Namespace(namespace)
 		} else {
 			return nil, errors.New("Strange: there should be a Namespace context")
@@ -109,6 +111,8 @@ func (s *ForwardingREST) GetClientResource(ctx context.Context) (dynamic.Resourc
 	return &transforming.TransformingClient{
 		Transformations: s.transformers,
 		Client:          resourceClient,
+		Namespace:       namespace,
+		Resource:        s.resource,
 	}, nil
 }
 

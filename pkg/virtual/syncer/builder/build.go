@@ -21,6 +21,7 @@ import (
 	"errors"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	"k8s.io/client-go/dynamic"
@@ -36,6 +37,7 @@ import (
 	virtualworkspacesdynamic "github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic"
 	apidefs "github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic/apidefs"
 	"github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic/apiserver"
+	"github.com/kcp-dev/kcp/pkg/virtual/syncer/strategies"
 	"github.com/kcp-dev/kcp/pkg/virtual/syncer/transformers"
 	"github.com/kcp-dev/kcp/pkg/virtual/syncer/transforming"
 )
@@ -111,8 +113,25 @@ func BuildVirtualWorkspace(rootPathPrefix string, dynamicClusterClient dynamic.C
 				transformers.AddWorkloadClusterLabelSelector(),
 			}
 
+			deployments := schema.GroupVersionResource{
+				Group:    "apps",
+				Version:  "v1",
+				Resource: "deployments",
+			}
+			typedTransformers := transforming.TypedTransformers{
+				deployments: strategies.StrategyTransformers(deployments, strategies.ScalableSpreadStrategy(deployments)),
+			}
+
 			installedAPIs = newInstalledAPIs(func(workspaceName string, spec *apiresourcev1alpha1.CommonAPIResourceSpec) (apidefs.APIDefinition, error) {
-				return apiserver.CreateServingInfoFor(mainConfig, workspaceName, spec, provideForwardingRestStorage(dynamicClusterClient, genericTransformers))
+				gvr := schema.GroupVersionResource{
+					Group:    spec.GroupVersion.Group,
+					Version:  spec.GroupVersion.Version,
+					Resource: spec.Plural,
+				}
+				var transformers transforming.Transformers
+				transformers = append(transformers, genericTransformers...)
+				transformers = append(transformers, typedTransformers[gvr]...)
+				return apiserver.CreateServingInfoFor(mainConfig, workspaceName, spec, provideForwardingRestStorage(dynamicClusterClient, transformers))
 			})
 
 			// This should be replaced by a real controller when the URLs should be added to the WorkloadCluster object

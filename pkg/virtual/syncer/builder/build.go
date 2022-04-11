@@ -130,7 +130,11 @@ func BuildVirtualWorkspace(rootPathPrefix string, dynamicClusterClient dynamic.C
 				}
 				var transformers transforming.Transformers
 				transformers = append(transformers, genericTransformers...)
-				transformers = append(transformers, typedTransformers[gvr]...)
+				gvrTransformers := typedTransformers[gvr]
+				if len(gvrTransformers) == 0 {
+					gvrTransformers = strategies.StrategyTransformers(deployments, strategies.IdentityStrategy())
+				}
+				transformers = append(transformers, gvrTransformers...)
 				return apiserver.CreateServingInfoFor(mainConfig, workspaceName, spec, provideForwardingRestStorage(dynamicClusterClient, transformers))
 			})
 

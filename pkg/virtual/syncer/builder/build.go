@@ -36,6 +36,7 @@ import (
 	virtualworkspacesdynamic "github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic"
 	apidefs "github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic/apidefs"
 	"github.com/kcp-dev/kcp/pkg/virtual/syncer/dynamic/apiserver"
+	"github.com/kcp-dev/kcp/pkg/virtual/syncer/transformers"
 	"github.com/kcp-dev/kcp/pkg/virtual/syncer/transforming"
 )
 
@@ -107,6 +108,7 @@ func BuildVirtualWorkspace(rootPathPrefix string, dynamicClusterClient dynamic.C
 			negotiatedAPIResourceInformer := wildcardKcpInformers.Apiresource().V1alpha1().NegotiatedAPIResources()
 
 			genericTransformers := transforming.Transformers{
+				transformers.AddWorkloadClusterLabelSelector(),
 			}
 
 			installedAPIs = newInstalledAPIs(func(workspaceName string, spec *apiresourcev1alpha1.CommonAPIResourceSpec) (apidefs.APIDefinition, error) {

@@ -20,6 +20,12 @@ import (
 	apiresourcev1alpha1 "github.com/kcp-dev/kcp/pkg/apis/apiresource/v1alpha1"
 )
 
+const SyncerFinalizer string = "workloads.kcp.dev/syncer"
+
+func LocationClusterLabelName(locationName string) string {
+	return "cluster.internal.workloads.kcp.dev/" + locationName
+}
+
 type WorkloadCluster struct {
 	WorkspaceName string
 	LocationName  string

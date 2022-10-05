@@ -135,7 +135,7 @@ func wildcardIdentitiesResolver(ids *identities,
 			logger := logging.WithObject(logger, &apisv1alpha1.APIExport{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:        name,
-					Annotations: map[string]string{logging.APIVersionKey: tenancyv1alpha1.RootCluster.String()},
+					Annotations: map[string]string{string(logging.APIVersionKey): tenancyv1alpha1.RootCluster.String()},
 				},
 			}).WithValues("group", group)
 			ids.lock.RLock()
@@ -167,7 +167,7 @@ func wildcardIdentitiesResolver(ids *identities,
 			logger := logging.WithObject(logger, &apisv1alpha1.APIExport{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:        name,
-					Annotations: map[string]string{logging.APIVersionKey: tenancyv1alpha1.RootCluster.String()},
+					Annotations: map[string]string{string(logging.APIVersionKey): tenancyv1alpha1.RootCluster.String()},
 				},
 			}).WithValues("gr", gr.String())
 			ids.lock.RLock()

@@ -68,8 +68,8 @@ func BuildVirtualWorkspace(
 
 	readyCh := make(chan struct{})
 
-	return &virtualworkspacesdynamic.DynamicVirtualWorkspace{
-		RootPathResolver: framework.RootPathResolverFunc(func(urlPath string, requestContext context.Context) (accepted bool, prefixToStrip string, completedContext context.Context) {
+	resolverProvider := func(syncerName string) framework.RootPathResolver {
+		return framework.RootPathResolverFunc(func(urlPath string, requestContext context.Context) (accepted bool, prefixToStrip string, completedContext context.Context) {
 			select {
 			case <-readyCh:
 			default:
@@ -77,7 +77,7 @@ func BuildVirtualWorkspace(
 			}
 
 			completedContext = requestContext
-			if !strings.HasPrefix(urlPath, rootPathPrefix) {
+			if !strings.HasPrefix(urlPath, rootPathPrefix + syncerName) {
 				return
 			}
 			withoutRootPathPrefix := strings.TrimPrefix(urlPath, rootPathPrefix)
@@ -139,35 +139,11 @@ func BuildVirtualWorkspace(
 			prefixToStrip = strings.TrimSuffix(urlPath, realPath)
 			accepted = true
 			return
-		}),
-		Authorizer: authorizer.AuthorizerFunc(func(ctx context.Context, a authorizer.Attributes) (authorizer.Decision, string, error) {
-			syncTargetKey := dynamiccontext.APIDomainKeyFrom(ctx)
-			negotiationWorkspaceName, syncTargetName := clusters.SplitClusterAwareKey(string(syncTargetKey))
+		})
+	}
 
-			authz, err := delegated.NewDelegatedAuthorizer(negotiationWorkspaceName, kubeClusterClient)
-			if err != nil {
-				return authorizer.DecisionNoOpinion, "Error", err
-			}
-			SARAttributes := authorizer.AttributesRecord{
-				User:            a.GetUser(),
-				Verb:            "sync",
-				Name:            syncTargetName,
-				APIGroup:        workloadv1alpha1.SchemeGroupVersion.Group,
-				APIVersion:      workloadv1alpha1.SchemeGroupVersion.Version,
-				Resource:        "synctargets",
-				ResourceRequest: true,
-			}
-			return authz.Authorize(ctx, SARAttributes)
-		}),
-		ReadyChecker: framework.ReadyFunc(func() error {
-			select {
-			case <-readyCh:
-				return nil
-			default:
-				return errors.New("syncer virtual workspace controllers are not started")
-			}
-		}),
-		BootstrapAPISetManagement: func(mainConfig genericapiserver.CompletedConfig) (apidefinition.APIDefinitionSetGetter, error) {
+	bootstrapManagementProvider := func(storageBuilderProvider StorageBuilderProvider) func(mainConfig genericapiserver.CompletedConfig) (apidefinition.APIDefinitionSetGetter, error) {
+		return func(mainConfig genericapiserver.CompletedConfig) (apidefinition.APIDefinitionSetGetter, error) {
 			apiReconciler, err := apireconciler.NewAPIReconciler(
 				kcpClusterClient,
 				wildcardKcpInformers.Workload().V1alpha1().SyncTargets(),
@@ -184,7 +160,7 @@ func BuildVirtualWorkspace(
 					storageWrapper := forwardingregistry.WithStaticLabelSelector(requirements)
 
 					ctx, cancelFn := context.WithCancel(context.Background())
-					storageBuilder := NewStorageBuilder(ctx, dynamicClusterClient, apiExportIdentityHash, storageWrapper)
+					storageBuilder := storageBuilderProvider(ctx, dynamicClusterClient, apiExportIdentityHash, storageWrapper)
 					def, err := apiserver.CreateServingInfoFor(mainConfig, apiResourceSchema, version, storageBuilder)
 					if err != nil {
 						cancelFn()
@@ -221,7 +197,38 @@ func BuildVirtualWorkspace(
 			}
 
 			return apiReconciler, nil
-		},
+		}
+	}
+	return &virtualworkspacesdynamic.DynamicVirtualWorkspace{
+		RootPathResolver: resolverProvider("syncer"),
+		Authorizer: authorizer.AuthorizerFunc(func(ctx context.Context, a authorizer.Attributes) (authorizer.Decision, string, error) {
+			syncTargetKey := dynamiccontext.APIDomainKeyFrom(ctx)
+			negotiationWorkspaceName, syncTargetName := clusters.SplitClusterAwareKey(string(syncTargetKey))
+
+			authz, err := delegated.NewDelegatedAuthorizer(negotiationWorkspaceName, kubeClusterClient)
+			if err != nil {
+				return authorizer.DecisionNoOpinion, "Error", err
+			}
+			SARAttributes := authorizer.AttributesRecord{
+				User:            a.GetUser(),
+				Verb:            "sync",
+				Name:            syncTargetName,
+				APIGroup:        workloadv1alpha1.SchemeGroupVersion.Group,
+				APIVersion:      workloadv1alpha1.SchemeGroupVersion.Version,
+				Resource:        "synctargets",
+				ResourceRequest: true,
+			}
+			return authz.Authorize(ctx, SARAttributes)
+		}),
+		ReadyChecker: framework.ReadyFunc(func() error {
+			select {
+			case <-readyCh:
+				return nil
+			default:
+				return errors.New("syncer virtual workspace controllers are not started")
+			}
+		}),
+		BootstrapAPISetManagement: bootstrapManagementProvider(NewStorageBuilder),
 	}
 }
 

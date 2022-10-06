@@ -32,6 +32,8 @@ import (
 	registry "github.com/kcp-dev/kcp/pkg/virtual/framework/forwardingregistry"
 )
 
+type StorageBuilderProvider func (ctx context.Context, clusterClient dynamic.ClusterInterface, apiExportIdentityHash string, wrapper registry.StorageWrapper) apiserver.RestProviderFunc
+
 // NewStorageBuilder returns a forwarding storage build function, with an optional storage wrapper e.g. to add label based filtering.
 func NewStorageBuilder(ctx context.Context, clusterClient dynamic.ClusterInterface, apiExportIdentityHash string, wrapper registry.StorageWrapper) apiserver.RestProviderFunc {
 	return func(resource schema.GroupVersionResource, kind schema.GroupVersionKind, listKind schema.GroupVersionKind, typer runtime.ObjectTyper, tableConvertor rest.TableConvertor, namespaceScoped bool, schemaValidator *validate.SchemaValidator, subresourcesSchemaValidator map[string]*validate.SchemaValidator, structuralSchema *structuralschema.Structural) (mainStorage rest.Storage, subresourceStorages map[string]rest.Storage) {

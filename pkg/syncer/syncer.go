@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	kcpdiscovery "github.com/kcp-dev/client-go/discovery"
@@ -52,6 +53,7 @@ import (
 	"github.com/kcp-dev/kcp/pkg/syncer/resourcesync"
 	"github.com/kcp-dev/kcp/pkg/syncer/spec"
 	"github.com/kcp-dev/kcp/pkg/syncer/status"
+	"github.com/kcp-dev/kcp/pkg/syncer/storage"
 	. "github.com/kcp-dev/kcp/tmc/pkg/logging"
 )
 
@@ -141,7 +143,16 @@ func StartSyncer(ctx context.Context, cfg *SyncerConfig, numSyncerThreads int, i
 	upstreamConfig.Host = syncerVirtualWorkspaceURL
 	rest.AddUserAgent(upstreamConfig, "kcp#spec-syncer/"+kcpVersion)
 
-	upstreamDynamicClusterClient, err := kcpdynamic.NewForConfig(upstreamConfig)
+	upstreamSyncerClusterClient, err := kcpdynamic.NewForConfig(upstreamConfig)
+	if err != nil {
+		return err
+	}
+
+	upstreamUpsyncConfig := rest.CopyConfig(cfg.UpstreamConfig)
+	// Upsyncing to Virtual Workspace for upsyncing
+	upstreamUpsyncConfig.Host = strings.Replace(syncerVirtualWorkspaceURL, "/services/syncer", "/services/upsyncer", 1)
+	upstreamUpsyncConfig.UserAgent = "kcp#upsyncer/" + kcpVersion
+	upstreamUpsyncerClusterClient, err := kcpdynamic.NewForConfig(upstreamUpsyncConfig)
 	if err != nil {
 		return err
 	}
@@ -196,7 +207,7 @@ func StartSyncer(ctx context.Context, cfg *SyncerConfig, numSyncerThreads int, i
 	resourceController, err := resourcesync.NewController(
 		logger,
 		discoveryClient.DiscoveryInterface,
-		upstreamDynamicClusterClient,
+		upstreamSyncerClusterClient,
 		downstreamDynamicClient,
 		downstreamKubeClient,
 		kcpSyncTargetClient,
@@ -209,7 +220,12 @@ func StartSyncer(ctx context.Context, cfg *SyncerConfig, numSyncerThreads int, i
 		return err
 	}
 
-	ddsifForUpstreamSyncer, err := ddsif.NewDiscoveringDynamicSharedInformerFactory(upstreamDynamicClusterClient, nil, nil, resourceController, cache.Indexers{})
+	ddsifForUpstreamSyncer, err := ddsif.NewDiscoveringDynamicSharedInformerFactory(upstreamSyncerClusterClient, nil, nil, resourceController, cache.Indexers{})
+	if err != nil {
+		return err
+	}
+
+	ddsifForUpstreamUpsyncer, err := ddsif.NewDiscoveringDynamicSharedInformerFactory(upstreamUpsyncerClusterClient, nil, nil, resourceController, cache.Indexers{})
 	if err != nil {
 		return err
 	}
@@ -246,7 +262,7 @@ func StartSyncer(ctx context.Context, cfg *SyncerConfig, numSyncerThreads int, i
 	}
 
 	specSyncer, err := spec.NewSpecSyncer(logger, cfg.SyncTargetWorkspace, cfg.SyncTargetName, syncTargetKey, upstreamURL, advancedSchedulingEnabled,
-		upstreamDynamicClusterClient, downstreamDynamicClient, downstreamKubeClient, ddsifForUpstreamSyncer, ddsifForDownstream, downstreamNamespaceController, syncTarget.GetUID(),
+		upstreamSyncerClusterClient, downstreamDynamicClient, downstreamKubeClient, ddsifForUpstreamSyncer, ddsifForDownstream, downstreamNamespaceController, syncTarget.GetUID(),
 		syncerNamespace, syncerNamespaceInformerFactory, cfg.DNSImage)
 	if err != nil {
 		return err
@@ -254,7 +270,7 @@ func StartSyncer(ctx context.Context, cfg *SyncerConfig, numSyncerThreads int, i
 
 	logger.Info("Creating status syncer")
 	statusSyncer, err := status.NewStatusSyncer(logger, cfg.SyncTargetWorkspace, cfg.SyncTargetName, syncTargetKey, advancedSchedulingEnabled,
-		upstreamDynamicClusterClient, downstreamDynamicClient, ddsifForUpstreamSyncer, ddsifForDownstream, syncTarget.GetUID())
+		upstreamSyncerClusterClient, downstreamDynamicClient, ddsifForUpstreamSyncer, ddsifForDownstream, syncTarget.GetUID())
 	if err != nil {
 		return err
 	}
@@ -268,6 +284,7 @@ func StartSyncer(ctx context.Context, cfg *SyncerConfig, numSyncerThreads int, i
 		}
 	}
 	ddsifForUpstreamSyncer.Start(ctx.Done())
+	ddsifForUpstreamUpsyncer.Start(ctx.Done())
 	ddsifForDownstream.Start(ctx.Done())
 
 	kcpSyncTargetInformerFactory.Start(ctx.Done())
@@ -277,16 +294,18 @@ func StartSyncer(ctx context.Context, cfg *SyncerConfig, numSyncerThreads int, i
 	syncerNamespaceInformerFactory.WaitForCacheSync(ctx.Done())
 
 	go ddsifForUpstreamSyncer.StartWorker(ctx)
+	go ddsifForUpstreamUpsyncer.StartWorker(ctx)
 	go ddsifForDownstream.StartWorker(ctx)
 
 	go apiImporter.Start(klog.NewContext(ctx, logger.WithValues("resources", resources)), importPollInterval)
 	go resourceController.Start(ctx, 1)
 	go specSyncer.Start(ctx, numSyncerThreads)
 	go statusSyncer.Start(ctx, numSyncerThreads)
+
 	go downstreamNamespaceController.Start(ctx, numSyncerThreads)
 
 	upstreamSyncerControllerManager := controllermanager.NewControllerManager(ctx,
-		"upstream",
+		"upstream-syncer",
 		controllermanager.InformerSource{
 			Subscribe: ddsifForUpstreamSyncer.Subscribe,
 			Informer: func(gvr schema.GroupVersionResource) (cache.SharedIndexInformer, bool, bool) {
@@ -296,6 +315,30 @@ func StartSyncer(ctx context.Context, cfg *SyncerConfig, numSyncerThreads int, i
 		map[string]controllermanager.ControllerDefintion{},
 	)
 	go upstreamSyncerControllerManager.Start(ctx)
+
+	upstreamUpsyncerControllerManager := controllermanager.NewControllerManager(ctx,
+		"upstream-upsyncer",
+		controllermanager.InformerSource{
+			Subscribe: ddsifForUpstreamSyncer.Subscribe,
+			Informer: func(gvr schema.GroupVersionResource) (cache.SharedIndexInformer, bool, bool) {
+				return ddsifForUpstreamSyncer.Informer(gvr)
+			},
+		},
+		map[string]controllermanager.ControllerDefintion{
+			storage.PersistentVolumeClaimControllerName: {
+				RequiredGVRs: []schema.GroupVersionResource{
+					{Group: "", Version: "v1", Resource: "persistentvolumeclaims"},
+					{Group: "", Version: "v1", Resource: "persistentvolumes"},
+				},
+				NumThreads: 2,
+				Create: func(syncedInformers map[schema.GroupVersionResource]cache.SharedIndexInformer) (controllermanager.Controller, error) {
+					return storage.NewPersistentVolumeSyncer(logger, cfg.SyncTargetWorkspace, cfg.SyncTargetName, syncTargetKey,
+						downstreamKubeClient, ddsifForUpstreamSyncer, ddsifForDownstream, syncedInformers, syncTarget.GetUID())
+				},
+			},
+		},
+	)
+	go upstreamUpsyncerControllerManager.Start(ctx)
 
 	downstreamSyncerControllerManager := controllermanager.NewControllerManager(ctx,
 		"downstream",
@@ -312,6 +355,17 @@ func StartSyncer(ctx context.Context, cfg *SyncerConfig, numSyncerThreads int, i
 				NumThreads: 2,
 				Create: func(syncedInformers map[schema.GroupVersionResource]cache.SharedIndexInformer) (controllermanager.Controller, error) {
 					return endpoints.NewEndpointController(logger, downstreamDynamicClient, ddsifForDownstream, syncedInformers)
+				},
+			},
+			storage.PersistentVolumeClaimControllerName: {
+				RequiredGVRs: []schema.GroupVersionResource{
+					{Group: "", Version: "v1", Resource: "persistentvolumeclaims"},
+					{Group: "", Version: "v1", Resource: "persistentvolumes"},
+				},
+				NumThreads: 2,
+				Create: func(syncedInformers map[schema.GroupVersionResource]cache.SharedIndexInformer) (controllermanager.Controller, error) {
+					return storage.NewPersistentVolumeClaimSyncer(logger, cfg.SyncTargetWorkspace, cfg.SyncTargetName, syncTargetKey,
+						downstreamKubeClient, ddsifForUpstreamSyncer, ddsifForDownstream, syncedInformers, syncTarget.GetUID())
 				},
 			},
 		},

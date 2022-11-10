@@ -1,0 +1,211 @@
+/*
+Copyright 2022 The KCP Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package syncer
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	kcpkubernetesclientset "github.com/kcp-dev/client-go/kubernetes"
+	"github.com/kcp-dev/logicalcluster/v2"
+	"github.com/stretchr/testify/require"
+
+	corev1 "k8s.io/api/core/v1"
+	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/retry"
+
+	workloadv1alpha1 "github.com/kcp-dev/kcp/pkg/apis/workload/v1alpha1"
+	kubefixtures "github.com/kcp-dev/kcp/test/e2e/fixtures/kube"
+	"github.com/kcp-dev/kcp/test/e2e/framework"
+)
+
+func TestPersistentVolumeSyncer(t *testing.T) {
+	t.Parallel()
+	framework.Suite(t, "transparent-multi-cluster")
+
+	server := framework.SharedKcpServer(t)
+
+	kubeClusterClient, err := kcpkubernetesclientset.NewForConfig(server.BaseConfig(t))
+	require.NoError(t, err)
+
+	var testCases = []struct {
+		name string
+		work func(t *testing.T, syncer *framework.StartedSyncerFixture, workspaceName logicalcluster.Name, syncTargetKey string)
+	}{
+		{
+			name: "process upstream PV",
+			work: func(t *testing.T, syncer *framework.StartedSyncerFixture, workspaceName logicalcluster.Name, syncTargetKey string) {
+				ctx, cancelFunc := context.WithCancel(context.Background())
+				t.Cleanup(cancelFunc)
+
+				ns := &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-ns",
+					},
+				}
+
+				logWithTimestamp(t, "Creating upstream test namespace %s...", ns.Name)
+				_, err = kubeClusterClient.CoreV1().Cluster(workspaceName).Namespaces().Create(ctx, ns, metav1.CreateOptions{})
+				require.NoError(t, err)
+
+				logWithTimestamp(t, "Create upstream PV")
+				upstreamPV := &corev1.PersistentVolume{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-pv",
+						Labels: map[string]string{
+							workloadv1alpha1.ClusterResourceStateLabelPrefix + syncTargetKey: "Upsync",
+						},
+					},
+					Spec: corev1.PersistentVolumeSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{
+							corev1.ReadWriteOnce,
+						},
+						PersistentVolumeSource: corev1.PersistentVolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: "/tmp/data",
+							},
+						},
+					},
+				}
+				upstreamPV, err = kubeClusterClient.CoreV1().PersistentVolumes().Cluster(workspaceName).Create(ctx, upstreamPV, metav1.CreateOptions{})
+				require.NoError(t, err)
+
+				logWithTimestamp(t, "Wait for upstream PV to be created...")
+				err = retry.OnError(retry.DefaultBackoff, errors.IsNotFound, func() error {
+					upstreamPV, err = kubeClusterClient.CoreV1().PersistentVolumes().Cluster(workspaceName).Get(ctx, upstreamPV.Name, metav1.GetOptions{})
+					return err
+				})
+				require.NoError(t, err)
+
+				downstreamPV := &corev1.PersistentVolume{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-pv",
+						Labels: map[string]string{
+							workloadv1alpha1.InternalDownstreamClusterLabel: syncTargetKey,
+						},
+					},
+					Spec: corev1.PersistentVolumeSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{
+							corev1.ReadWriteOnce,
+						},
+						PersistentVolumeSource: corev1.PersistentVolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: "/tmp/data",
+							},
+						},
+					},
+				}
+				downstreamPV, err = syncer.DownstreamKubeClient.CoreV1().PersistentVolumes().Create(ctx, downstreamPV, metav1.CreateOptions{})
+				require.NoError(t, err)
+
+				logWithTimestamp(t, "Wait for downstreamPV PV to be created...")
+				err = retry.OnError(retry.DefaultBackoff, errors.IsNotFound, func() error {
+					upstreamPV, err = syncer.DownstreamKubeClient.CoreV1().PersistentVolumes().Get(ctx, downstreamPV.Name, metav1.GetOptions{})
+					return err
+				})
+				require.NoError(t, err)
+
+				// logWithTimestamp(t, "Wait for downstream PV to be synced...")
+				// framework.Eventually(t, func() (success bool, reason string) {
+				// 	_, err = syncer.DownstreamKubeClient.CoreV1().PersistentVolumes().Get(ctx, upstreamPV.Name, metav1.GetOptions{})
+				// 	if errors.IsNotFound(err) {
+				// 		return false, "Downstream PV not synced"
+				// 	}
+				// 	require.NoError(t, err)
+				// 	return true, ""
+				// }, wait.ForeverTestTimeout, time.Millisecond*100, "Downstream PV should have been synced")
+
+				// desiredNSLocator := shared.NewNamespaceLocator(workspaceName, syncer.SyncerConfig.SyncTargetWorkspace, types.UID(syncer.SyncerConfig.SyncTargetUID), syncer.SyncerConfig.SyncTargetName, ns.Name)
+				// downstreamNamespaceName, err := shared.PhysicalClusterNamespaceName(desiredNSLocator)
+				require.NoError(t, err)
+
+			},
+		},
+	}
+
+	for i := range testCases {
+		testCase := testCases[i]
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			framework.Suite(t, "transparent-multi-cluster")
+
+			ctx, cancelFunc := context.WithCancel(context.Background())
+			t.Cleanup(cancelFunc)
+
+			orgClusterName := framework.NewOrganizationFixture(t, server)
+
+			pvController := framework.NewWorkspaceFixture(t, server, orgClusterName, framework.WithName("pv-controller"))
+
+			logWithTimestamp(t, "Deploying syncer into workspace %s", pvController)
+			syncer := framework.NewSyncerFixture(t, server, pvController,
+				framework.WithSyncTargetName("syncer"),
+				framework.WithExtraResources("persistentvolumes", "persistentvolumeclaims"),
+				framework.WithAPIExports(""),
+				framework.WithDownstreamPreparation(func(config *rest.Config, isFakePCluster bool) {
+					if !isFakePCluster {
+						// Only need to install services,ingresses and persistentvolumes in a logical cluster
+						return
+					}
+					sinkCrdClient, err := apiextensionsclientset.NewForConfig(config)
+					require.NoError(t, err, "failed to create apiextensions client")
+					logWithTimestamp(t, "Installing test CRDs into sink cluster...")
+					kubefixtures.Create(t, sinkCrdClient.ApiextensionsV1().CustomResourceDefinitions(),
+						metav1.GroupResource{Group: "core.k8s.io", Resource: "persistentvolumes"},
+						metav1.GroupResource{Group: "core.k8s.io", Resource: "persistentvolumeclaims"},
+					)
+					require.NoError(t, err)
+				}),
+			).Start(t)
+
+			logWithTimestamp(t, "Bind syncer workspace")
+			framework.NewBindCompute(t, pvController, server,
+				framework.WithAPIExportsWorkloadBindOption(pvController.String()+":kubernetes"),
+			).Bind(t)
+
+			logWithTimestamp(t, "Waiting for the persistentvolumes crd to be imported and available in the syncer source cluster...")
+			require.Eventually(t, func() bool {
+				_, err := kubeClusterClient.CoreV1().PersistentVolumes().Cluster(pvController).List(ctx, metav1.ListOptions{})
+				if err != nil {
+					logWithTimestamp(t, "error seen waiting for persistentvolumes crd to become active: %v", err)
+					return false
+				}
+				return true
+			}, wait.ForeverTestTimeout, time.Millisecond*100)
+
+			logWithTimestamp(t, "Waiting for the persistentvolumeclaims crd to be imported and available in the syncer source cluster...")
+			require.Eventually(t, func() bool {
+				_, err := kubeClusterClient.CoreV1().PersistentVolumeClaims().Cluster(pvController).Namespace("").List(ctx, metav1.ListOptions{})
+				if err != nil {
+					logWithTimestamp(t, "error seen waiting for persistentvolumeclaims crd to become active: %v", err)
+					return false
+				}
+				return true
+			}, wait.ForeverTestTimeout, time.Millisecond*100)
+
+			syncTargetKey := workloadv1alpha1.ToSyncTargetKey(syncer.SyncerConfig.SyncTargetWorkspace, syncer.SyncerConfig.SyncTargetName)
+
+			logWithTimestamp(t, "Starting test...")
+			testCase.work(t, syncer, pvController, syncTargetKey)
+		})
+	}
+
+}

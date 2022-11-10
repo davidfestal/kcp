@@ -52,6 +52,7 @@ import (
 	"github.com/kcp-dev/kcp/pkg/syncer/resourcesync"
 	"github.com/kcp-dev/kcp/pkg/syncer/spec"
 	"github.com/kcp-dev/kcp/pkg/syncer/status"
+	"github.com/kcp-dev/kcp/pkg/syncer/storage"
 	. "github.com/kcp-dev/kcp/tmc/pkg/logging"
 )
 
@@ -283,6 +284,7 @@ func StartSyncer(ctx context.Context, cfg *SyncerConfig, numSyncerThreads int, i
 	go resourceController.Start(ctx, 1)
 	go specSyncer.Start(ctx, numSyncerThreads)
 	go statusSyncer.Start(ctx, numSyncerThreads)
+
 	go downstreamNamespaceController.Start(ctx, numSyncerThreads)
 
 	upstreamSyncerControllerManager := controllermanager.NewControllerManager(ctx,
@@ -293,7 +295,19 @@ func StartSyncer(ctx context.Context, cfg *SyncerConfig, numSyncerThreads int, i
 				return ddsifForUpstreamSyncer.Informer(gvr)
 			},
 		},
-		map[string]controllermanager.ControllerDefintion{},
+		map[string]controllermanager.ControllerDefintion{
+			storage.PersistentVolumeClaimControllerName: {
+				RequiredGVRs: []schema.GroupVersionResource{
+					{Group: "", Version: "v1", Resource: "persistentvolumeclaims"},
+					{Group: "", Version: "v1", Resource: "persistentvolumes"},
+				},
+				NumThreads: 2,
+				Create: func(syncedInformers map[schema.GroupVersionResource]cache.SharedIndexInformer) (controllermanager.Controller, error) {
+					return storage.NewPersistentVolumeSyncer(logger, cfg.SyncTargetWorkspace, cfg.SyncTargetName, syncTargetKey,
+						upstreamDynamicClusterClient, downstreamDynamicClient, downstreamKubeClient, ddsifForUpstreamSyncer, ddsifForDownstream, syncedInformers, syncTarget.GetUID())
+				},
+			},
+		},
 	)
 	go upstreamSyncerControllerManager.Start(ctx)
 
@@ -311,6 +325,19 @@ func StartSyncer(ctx context.Context, cfg *SyncerConfig, numSyncerThreads int, i
 				},
 				NumThreads: 2,
 				Create: func(syncedInformers map[schema.GroupVersionResource]cache.SharedIndexInformer) (controllermanager.Controller, error) {
+					return endpoints.NewEndpointController(logger, downstreamDynamicClient, ddsifForDownstream, syncedInformers)
+				},
+			},
+			storage.PersistentVolumeClaimControllerName: {
+				RequiredGVRs: []schema.GroupVersionResource{
+					{Group: "", Version: "v1", Resource: "persistentvolumeclaims"},
+					{Group: "", Version: "v1", Resource: "persistentvolumes"},
+				},
+				NumThreads: 2,
+				Create: func(syncedInformers map[schema.GroupVersionResource]cache.SharedIndexInformer) (controllermanager.Controller, error) {
+					return storage.NewPersistentVolumeClaimSyncer(logger, cfg.SyncTargetWorkspace, cfg.SyncTargetName, syncTargetKey,
+						downstreamDynamicClient, downstreamKubeClient, ddsifForUpstreamSyncer, ddsifForDownstream, syncedInformers, syncTarget.GetUID())
+
 					return endpoints.NewEndpointController(logger, downstreamDynamicClient, ddsifForDownstream, syncedInformers)
 				},
 			},

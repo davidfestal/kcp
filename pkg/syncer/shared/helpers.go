@@ -71,3 +71,12 @@ func GetDNSID(workspace logicalcluster.Name, syncTargetUID types.UID, syncTarget
 
 	return fmt.Sprintf("kcp-dns-%s-%s-%s", syncTargetName, uid36hash[:8], workspace36hash[:8])
 }
+
+func Contains[T comparable](elems []T, v T) bool {
+	for _, s := range elems {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}

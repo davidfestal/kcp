@@ -27,7 +27,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	kcpcache "github.com/kcp-dev/apimachinery/pkg/cache"
 	kcpdynamicinformer "github.com/kcp-dev/client-go/dynamic/dynamicinformer"
-	kcpkubernetesinformers "github.com/kcp-dev/client-go/informers"
 	"github.com/kcp-dev/logicalcluster/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,7 +50,6 @@ import (
 	"k8s.io/klog/v2"
 
 	workloadv1alpha1 "github.com/kcp-dev/kcp/pkg/apis/workload/v1alpha1"
-	"github.com/kcp-dev/kcp/pkg/syncer/resourcesync"
 	"github.com/kcp-dev/kcp/pkg/syncer/spec/dns"
 )
 
@@ -1055,17 +1053,9 @@ func TestSyncerProcess(t *testing.T) {
 			setupServersideApplyPatchReactor(toClient)
 			resourceWatcherStarted := setupWatchReactor(tc.gvr.Resource, fromClusterClient)
 
-			fakeInformers := newFakeSyncerInformers(tc.gvr, fromInformers, toInformers)
-
 			// toInformerFactory to watch some DNS-related resources in the dns namespace
 			toInformerFactory := informers.NewSharedInformerFactoryWithOptions(toKubeClient, time.Hour,
 				informers.WithNamespace("kcp-01c0zzvlqsi7n"))
-			serviceAccountLister := toInformerFactory.Core().V1().ServiceAccounts().Lister()
-			roleLister := toInformerFactory.Rbac().V1().Roles().Lister()
-			roleBindingLister := toInformerFactory.Rbac().V1().RoleBindings().Lister()
-			deploymentLister := toInformerFactory.Apps().V1().Deployments().Lister()
-			serviceLister := toInformerFactory.Core().V1().Services().Lister()
-			endpointLister := toInformerFactory.Core().V1().Endpoints().Lister()
 
 			upstreamURL, err := url.Parse("https://kcp.dev:6443")
 			require.NoError(t, err)
@@ -1074,8 +1064,8 @@ func TestSyncerProcess(t *testing.T) {
 				toClean: sets.String{},
 			}
 			controller, err := NewSpecSyncer(logger, kcpLogicalCluster, tc.syncTargetName, syncTargetKey, upstreamURL, tc.advancedSchedulingEnabled,
-				fromClusterClient, toClient, toKubeClient, fromInformers, toInformers, mockedCleaner, fakeInformers, syncTargetUID,
-				serviceAccountLister, roleLister, roleBindingLister, deploymentLister, serviceLister, endpointLister, "kcp-01c0zzvlqsi7n", "dnsimage")
+				fromClusterClient, toClient, toKubeClient, nil, nil, mockedCleaner, syncTargetUID,
+				"kcp-01c0zzvlqsi7n", toInformerFactory, "dnsimage")
 			require.NoError(t, err)
 
 			fromInformers.Start(ctx.Done())
@@ -1372,30 +1362,3 @@ func patchSecretSingleClusterAction(name, namespace string, patchType types.Patc
 		Patch:      patch,
 	}
 }
-
-type fakeSyncerInformers struct {
-	upstreamInformer   kcpkubernetesinformers.GenericClusterInformer
-	downStreamInformer informers.GenericInformer
-}
-
-func newFakeSyncerInformers(gvr schema.GroupVersionResource, upstreamInformers kcpdynamicinformer.DynamicSharedInformerFactory, downStreamInformers dynamicinformer.DynamicSharedInformerFactory) *fakeSyncerInformers {
-	return &fakeSyncerInformers{
-		upstreamInformer:   upstreamInformers.ForResource(gvr),
-		downStreamInformer: downStreamInformers.ForResource(gvr),
-	}
-}
-
-func (f *fakeSyncerInformers) AddUpstreamEventHandler(handler resourcesync.ResourceEventHandlerPerGVR) {
-}
-func (f *fakeSyncerInformers) AddDownstreamEventHandler(handler resourcesync.ResourceEventHandlerPerGVR) {
-}
-func (f *fakeSyncerInformers) InformerForResource(gvr schema.GroupVersionResource) (*resourcesync.SyncerInformer, bool) {
-	return &resourcesync.SyncerInformer{
-		UpstreamInformer:   f.upstreamInformer,
-		DownstreamInformer: f.downStreamInformer,
-	}, true
-}
-func (f *fakeSyncerInformers) SyncableGVRs() (map[schema.GroupVersionResource]*resourcesync.SyncerInformer, error) {
-	return map[schema.GroupVersionResource]*resourcesync.SyncerInformer{{Group: "apps", Version: "v1", Resource: "deployments"}: nil}, nil
-}
-func (f *fakeSyncerInformers) Start(ctx context.Context, numThreads int) {}

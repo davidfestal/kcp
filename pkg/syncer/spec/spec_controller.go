@@ -47,7 +47,7 @@ import (
 
 	ddsif "github.com/kcp-dev/kcp/pkg/informer"
 	"github.com/kcp-dev/kcp/pkg/logging"
-	"github.com/kcp-dev/kcp/pkg/syncer/indexers"
+	syncerindexers "github.com/kcp-dev/kcp/pkg/syncer/indexers"
 	"github.com/kcp-dev/kcp/pkg/syncer/shared"
 	"github.com/kcp-dev/kcp/pkg/syncer/spec/dns"
 	specmutators "github.com/kcp-dev/kcp/pkg/syncer/spec/mutators"
@@ -125,7 +125,7 @@ func NewSpecSyncer(syncerLogger logr.Logger, syncTargetWorkspace logicalcluster.
 			if err != nil {
 				return nil, err
 			}
-			return nsInformer.Informer().GetIndexer().ByIndex(indexers.ByNamespaceLocatorIndexName, jsonLocator)
+			return nsInformer.Informer().GetIndexer().ByIndex(syncerindexers.ByNamespaceLocatorIndexName, jsonLocator)
 		},
 		syncTargetName:            syncTargetName,
 		syncTargetWorkspace:       syncTargetWorkspace,

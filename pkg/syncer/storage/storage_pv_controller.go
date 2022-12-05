@@ -25,7 +25,6 @@ import (
 
 	"github.com/go-logr/logr"
 	kcpcache "github.com/kcp-dev/apimachinery/pkg/cache"
-	kcpdynamic "github.com/kcp-dev/client-go/dynamic"
 	"github.com/kcp-dev/logicalcluster/v2"
 
 	corev1 "k8s.io/api/core/v1"
@@ -35,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
@@ -57,8 +55,6 @@ type PersistentVolumeController struct {
 	queue                                             workqueue.RateLimitingInterface
 	ddsifForUpstreamUpsyncer                          *ddsif.DiscoveringDynamicSharedInformerFactory
 	ddsifForDownstream                                *ddsif.GenericDiscoveringDynamicSharedInformerFactory[cache.SharedIndexInformer, cache.GenericLister, informers.GenericInformer]
-	upstreamClient                                    kcpdynamic.ClusterInterface
-	downstreamClient                                  dynamic.Interface
 	syncTarget                                        syncTargetSpec
 	updateDownstreamPersistentVolumeClaim             func(ctx context.Context, persistentVolumeClaim *corev1.PersistentVolumeClaim) (*corev1.PersistentVolumeClaim, error)
 	getDownstreamPersistentVolumeFromNamespaceLocator func(namespaceLocator shared.NamespaceLocator) (*corev1.PersistentVolume, error)
@@ -71,8 +67,6 @@ func NewPersistentVolumeSyncer(
 	syncerLogger logr.Logger,
 	syncTargetWorkspace logicalcluster.Name,
 	syncTargetName, syncTargetKey string,
-	upstreamClient kcpdynamic.ClusterInterface,
-	downstreamClient dynamic.Interface,
 	downstreamKubeClient *kubernetes.Clientset,
 	ddsifForUpstreamUpsyncer *ddsif.DiscoveringDynamicSharedInformerFactory,
 	ddsifForDownstream *ddsif.GenericDiscoveringDynamicSharedInformerFactory[cache.SharedIndexInformer, cache.GenericLister, informers.GenericInformer],
@@ -82,10 +76,8 @@ func NewPersistentVolumeSyncer(
 
 	c := &PersistentVolumeController{
 		queue:                    workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), persistentVolumeControllerName),
-		downstreamClient:         downstreamClient,
 		ddsifForUpstreamUpsyncer: ddsifForUpstreamUpsyncer,
 		ddsifForDownstream:       ddsifForDownstream,
-		upstreamClient:           upstreamClient,
 		syncTarget: syncTargetSpec{
 			name:      syncTargetName,
 			workspace: syncTargetWorkspace,

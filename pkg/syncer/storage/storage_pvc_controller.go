@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -48,17 +47,18 @@ import (
 const PersistentVolumeClaimControllerName = "kcp-workload-syncer-storage-pvc"
 
 var (
-	persistentVolumeClaimSchemeGroupVersion = corev1.SchemeGroupVersion.WithResource("persistentvolumesclaims")
+	persistentVolumeClaimSchemeGroupVersion = corev1.SchemeGroupVersion.WithResource("persistentvolumeclaims")
 	persistentVolumeSchemeGroupVersion      = corev1.SchemeGroupVersion.WithResource("persistentvolumes")
+	namespacesSchemeGroupVersion            = corev1.SchemeGroupVersion.WithResource("namespaces")
 )
 
 type PersistentVolumeClaimController struct {
 	queue                              workqueue.RateLimitingInterface
 	ddsifForUpstreamSyncer             *ddsif.DiscoveringDynamicSharedInformerFactory
-	downstreamClient                   dynamic.Interface
 	syncTarget                         syncTargetSpec
 	updateDownstreamPersistentVolume   func(ctx context.Context, persistentVolume *corev1.PersistentVolume) (*corev1.PersistentVolume, error)
 	getDownstreamPersistentVolumeClaim func(persistentVolumeClaimName, persistentVolumeClaimNamespace string) (runtime.Object, error)
+	getDownstreamNamespace             func(name string) (runtime.Object, error)
 	getDownstreamPersistentVolume      func(persistentVolumeName string) (runtime.Object, error)
 	getUpstreamPersistentVolumeClaim   func(clusterName logicalcluster.Name, persistentVolumeClaimName, persistentVolumeClaimNamespace string) (runtime.Object, error)
 	commit                             func(ctx context.Context, r *Resource, p *Resource, namespace string) error
@@ -83,7 +83,6 @@ func NewPersistentVolumeClaimSyncer(
 	syncerLogger logr.Logger,
 	syncTargetWorkspace logicalcluster.Name,
 	syncTargetName, syncTargetKey string,
-	downstreamClient dynamic.Interface,
 	downstreamKubeClient *kubernetes.Clientset,
 	ddsifForUpstreamSyncer *ddsif.DiscoveringDynamicSharedInformerFactory,
 	ddsifForDownstream *ddsif.GenericDiscoveringDynamicSharedInformerFactory[cache.SharedIndexInformer, cache.GenericLister, informers.GenericInformer],
@@ -93,7 +92,6 @@ func NewPersistentVolumeClaimSyncer(
 
 	c := &PersistentVolumeClaimController{
 		queue:                  workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), PersistentVolumeClaimControllerName),
-		downstreamClient:       downstreamClient,
 		ddsifForUpstreamSyncer: ddsifForUpstreamSyncer,
 		syncTarget: syncTargetSpec{
 			name:      syncTargetName,
@@ -117,6 +115,13 @@ func NewPersistentVolumeClaimSyncer(
 				return nil, errors.New("informer should be up and synced for persistentvolumeclaims in the upstream syncer informer factory")
 			}
 			return lister.Get(persistentVolumeName)
+		},
+		getDownstreamNamespace: func(name string) (runtime.Object, error) {
+			lister, known, synced := ddsifForDownstream.Lister(namespacesSchemeGroupVersion)
+			if !known || !synced {
+				return nil, errors.New("informer should be up and synced for namespaces in the downstream syncer informer factory")
+			}
+			return lister.Get(name)
 		},
 		getUpstreamPersistentVolumeClaim: func(clusterName logicalcluster.Name, persistentVolumeClaimName, persistentVolumeClaimNamespace string) (runtime.Object, error) {
 			lister, known, synced := ddsifForUpstreamSyncer.Lister(persistentVolumeClaimSchemeGroupVersion)

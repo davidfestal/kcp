@@ -24,6 +24,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 
 	workloadv1alpha1 "github.com/kcp-dev/kcp/pkg/apis/workload/v1alpha1"
@@ -48,12 +50,14 @@ func (c *PersistentVolumeController) process(ctx context.Context, key string) er
 		return fmt.Errorf("failed to get upstream PersistentVolume: %w", err)
 	}
 
-	upstreamPV, ok := upstreamPVObject.(*corev1.PersistentVolume)
+	upstreamPVUnstructured, ok := upstreamPVObject.(*unstructured.Unstructured)
 	if !ok {
-		return fmt.Errorf("failed to assert object to a PersistentVolume: %T", upstreamPVObject)
+		return fmt.Errorf("failed to assert object to Unstructured: %T", upstreamPVObject)
 	}
 
-	resourceState, ok := upstreamPV.GetLabels()[workloadv1alpha1.ClusterResourceStateLabelPrefix+c.syncTarget.key]
+	logger.V(1).Info("processing upstream PersistentVolume")
+
+	resourceState, ok := upstreamPVUnstructured.GetLabels()[workloadv1alpha1.ClusterResourceStateLabelPrefix+c.syncTarget.key]
 	if ok && resourceState == string(workloadv1alpha1.ResourceStateUpsync) {
 		desiredNSLocator := shared.NewNamespaceLocator(clusterName, c.syncTarget.workspace, c.syncTarget.uid, c.syncTarget.name, upstreamNamespace)
 		downstreamPV, err := c.getDownstreamPersistentVolumeFromNamespaceLocator(desiredNSLocator)
@@ -75,32 +79,34 @@ func (c *PersistentVolumeController) process(ctx context.Context, key string) er
 			return fmt.Errorf("failed to get downstream PersistentVolumeClaim: %w", err)
 		}
 
-		downstreamPVC, ok := downstreamPVCObject.(*corev1.PersistentVolumeClaim)
+		downstreamPVCObjectUnstructured, ok := downstreamPVCObject.(*unstructured.Unstructured)
 		if !ok {
-			return fmt.Errorf("failed to assert object to a PersistentVolumeClaim: %T", downstreamPVCObject)
+			return fmt.Errorf("failed to assert object to Unstructured: %T", downstreamPVCObject)
+		}
+
+		downstreamPVC := &corev1.PersistentVolumeClaim{}
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(downstreamPVCObjectUnstructured.UnstructuredContent(), downstreamPVC)
+		if err != nil {
+			return fmt.Errorf("failed to convert unstructured to PersistentVolumeClaim: %w", err)
 		}
 
 		// Remove the internal.workload.kcp.dev/delaystatussyncing annotation
-		removeAnnotationFromPersistentVolumeClaim(downstreamPVC)
+		annotations := downstreamPVCObjectUnstructured.GetAnnotations()
+		if annotations == nil {
+			return fmt.Errorf("failed to get annotations from downstream PersistentVolumeClaim, empty: %w", err)
+		}
+
+		delete(annotations, DelayStatusSyncing)
+		downstreamPVCObjectUnstructured.SetAnnotations(annotations)
 
 		_, err = c.updateDownstreamPersistentVolumeClaim(ctx, downstreamPVC)
 		if err != nil {
 			return fmt.Errorf("failed to update downstream PersistentVolumeClaim: %w", err)
 		}
 
-		logger.V(1).Info("Removed", DelayStatusSyncing, "PersistentVolumeClaim", downstreamPVC.Name)
+		logger.V(1).Info("Removed", "DelayStatusSyncing", DelayStatusSyncing, "PersistentVolumeClaim", downstreamPVC.Name)
 		return nil
 	}
 
 	return nil
-}
-
-func removeAnnotationFromPersistentVolumeClaim(downstreamPVC *corev1.PersistentVolumeClaim) {
-	annotations := downstreamPVC.GetAnnotations()
-	if annotations == nil {
-		return
-	}
-
-	delete(annotations, DelayStatusSyncing)
-	downstreamPVC.SetAnnotations(annotations)
 }

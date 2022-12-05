@@ -17,6 +17,7 @@ limitations under the License.
 package indexers
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -25,6 +26,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	workloadv1alpha1 "github.com/kcp-dev/kcp/pkg/apis/workload/v1alpha1"
+	"github.com/kcp-dev/kcp/pkg/syncer/shared"
 	syncershared "github.com/kcp-dev/kcp/pkg/syncer/shared"
 )
 
@@ -36,6 +38,8 @@ const (
 	APIBindingByClusterAndAcceptedClaimedGroupResources = "byClusterAndAcceptedClaimedGroupResources"
 	// ByClusterResourceStateLabelKey indexes resources based on the cluster state label key.
 	ByClusterResourceStateLabelKey = "ByClusterResourceStateLabelKey"
+	// NamespaceLocatorIndexName is the name of the index that allows you to filter by namespace locator
+	NamespaceLocatorIndexName = "ns-locator"
 )
 
 // IndexBySyncerFinalizerKey indexes by syncer finalizer label keys.
@@ -84,4 +88,29 @@ func ByIndex[T runtime.Object](indexer cache.Indexer, indexName, indexValue stri
 	}
 
 	return ret, nil
+}
+
+// IndexByNamespaceLocator is a cache.IndexFunc that indexes namespaces by the namespaceLocator annotation.
+func IndexByNamespaceLocator(obj interface{}) ([]string, error) {
+	metaObj, ok := obj.(metav1.Object)
+	if !ok {
+		return nil, fmt.Errorf("obj is supposed to be a metav1.Object, but is %T", obj)
+	}
+
+	if loc, found, err := shared.LocatorFromAnnotations(metaObj.GetAnnotations()); err != nil {
+		return nil, fmt.Errorf("failed to get locator from annotations: %w", err)
+	} else if !found {
+		return nil, nil
+	} else {
+		nsLocByte, err := json.Marshal(loc)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal locator %#v: %w", loc, err)
+		}
+		return []string{NamespaceLocatorIndexKey(nsLocByte)}, nil
+	}
+}
+
+// NamespaceLocatorIndexKey formats the index key for a namespace locator
+func NamespaceLocatorIndexKey(namespaceLocator []byte) string {
+	return string(namespaceLocator)
 }

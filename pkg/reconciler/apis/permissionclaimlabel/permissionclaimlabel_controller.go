@@ -56,7 +56,7 @@ const (
 func NewController(
 	kcpClusterClient kcpclientset.ClusterInterface,
 	dynamicClusterClient kcpdynamic.ClusterInterface,
-	dynamicDiscoverySharedInformerFactory *informer.DynamicDiscoverySharedInformerFactory,
+	dynamicDiscoverySharedInformerFactory *informer.DiscoveringDynamicSharedInformerFactory,
 	apiBindingInformer apisv1alpha1informers.APIBindingClusterInformer,
 	apiExportInformer apisv1alpha1informers.APIExportClusterInformer,
 ) (*controller, error) {
@@ -99,7 +99,7 @@ type controller struct {
 	kcpClusterClient     kcpclientset.ClusterInterface
 	apiBindingsIndexer   cache.Indexer
 	dynamicClusterClient kcpdynamic.ClusterInterface
-	ddsif                *informer.DynamicDiscoverySharedInformerFactory
+	ddsif                *informer.DiscoveringDynamicSharedInformerFactory
 
 	apiBindingsLister apisv1alpha1listers.APIBindingClusterLister
 	getAPIExport      func(clusterName logicalcluster.Name, name string) (*apisv1alpha1.APIExport, error)

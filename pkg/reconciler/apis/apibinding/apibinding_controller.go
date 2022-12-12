@@ -64,7 +64,7 @@ func NewController(
 	crdClusterClient kcpapiextensionsclientset.ClusterInterface,
 	kcpClusterClient kcpclientset.ClusterInterface,
 	dynamicClusterClient kcpdynamic.ClusterInterface,
-	dynamicDiscoverySharedInformerFactory *informer.DynamicDiscoverySharedInformerFactory,
+	dynamicDiscoverySharedInformerFactory *informer.DiscoveringDynamicSharedInformerFactory,
 	apiBindingInformer apisv1alpha1informers.APIBindingClusterInformer,
 	apiExportInformer apisv1alpha1informers.APIExportClusterInformer,
 	apiResourceSchemaInformer apisv1alpha1informers.APIResourceSchemaClusterInformer,
@@ -227,7 +227,7 @@ type controller struct {
 	crdClusterClient     kcpapiextensionsclientset.ClusterInterface
 	kcpClusterClient     kcpclientset.ClusterInterface
 	dynamicClusterClient kcpdynamic.ClusterInterface
-	ddsif                *informer.DynamicDiscoverySharedInformerFactory
+	ddsif                *informer.DiscoveringDynamicSharedInformerFactory
 
 	apiBindingsLister  apisv1alpha1listers.APIBindingClusterLister
 	listAPIBindings    func(clusterName logicalcluster.Name) ([]*apisv1alpha1.APIBinding, error)

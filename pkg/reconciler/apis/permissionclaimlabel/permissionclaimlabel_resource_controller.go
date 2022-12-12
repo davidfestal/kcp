@@ -51,7 +51,7 @@ const (
 func NewResourceController(
 	kcpClusterClient kcpclientset.ClusterInterface,
 	dynamicClusterClient kcpdynamic.ClusterInterface,
-	dynamicDiscoverySharedInformerFactory *informer.DynamicDiscoverySharedInformerFactory,
+	dynamicDiscoverySharedInformerFactory *informer.DiscoveringDynamicSharedInformerFactory,
 	apiBindingInformer apisv1alpha1informers.APIBindingClusterInformer,
 ) (*resourceController, error) {
 	if err := apiBindingInformer.Informer().GetIndexer().AddIndexers(
@@ -87,7 +87,7 @@ type resourceController struct {
 	queue                  workqueue.RateLimitingInterface
 	kcpClusterClient       kcpclientset.ClusterInterface
 	dynamicClusterClient   kcpdynamic.ClusterInterface
-	ddsif                  *informer.DynamicDiscoverySharedInformerFactory
+	ddsif                  *informer.DiscoveringDynamicSharedInformerFactory
 	permissionClaimLabeler *permissionclaim.Labeler
 }
 

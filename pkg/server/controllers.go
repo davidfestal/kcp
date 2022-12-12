@@ -335,7 +335,7 @@ func (s *Server) installWorkspaceDeletionController(ctx context.Context, config 
 	})
 }
 
-func (s *Server) installWorkloadResourceScheduler(ctx context.Context, config *rest.Config, ddsif *informer.DynamicDiscoverySharedInformerFactory) error {
+func (s *Server) installWorkloadResourceScheduler(ctx context.Context, config *rest.Config, ddsif *informer.DiscoveringDynamicSharedInformerFactory) error {
 	config = rest.CopyConfig(config)
 	config = rest.AddUserAgent(config, workloadresource.ControllerName)
 	dynamicClusterClient, err := kcpdynamic.NewForConfig(config)
@@ -345,7 +345,7 @@ func (s *Server) installWorkloadResourceScheduler(ctx context.Context, config *r
 
 	resourceScheduler, err := workloadresource.NewController(
 		dynamicClusterClient,
-		s.DynamicDiscoverySharedInformerFactory,
+		s.DiscoveringDynamicSharedInformerFactory,
 		s.KcpSharedInformerFactory.Workload().V1alpha1().SyncTargets(),
 		s.KubeSharedInformerFactory.Core().V1().Namespaces(),
 		s.KcpSharedInformerFactory.Scheduling().V1alpha1().Placements(),
@@ -564,7 +564,7 @@ func (s *Server) installSyncTargetHeartbeatController(ctx context.Context, confi
 	})
 }
 
-func (s *Server) installAPIBindingController(ctx context.Context, config *rest.Config, server *genericapiserver.GenericAPIServer, ddsif *informer.DynamicDiscoverySharedInformerFactory) error {
+func (s *Server) installAPIBindingController(ctx context.Context, config *rest.Config, server *genericapiserver.GenericAPIServer, ddsif *informer.DiscoveringDynamicSharedInformerFactory) error {
 	// NOTE: keep `config` unaltered so there isn't cross-use between controllers installed here.
 	apiBindingConfig := rest.CopyConfig(config)
 	apiBindingConfig = rest.AddUserAgent(apiBindingConfig, apibinding.ControllerName)
@@ -1158,7 +1158,7 @@ func (s *Server) installKubeQuotaController(
 		s.KcpSharedInformerFactory.Tenancy().V1alpha1().ClusterWorkspaces(),
 		kubeClusterClient,
 		s.KubeSharedInformerFactory,
-		s.DynamicDiscoverySharedInformerFactory,
+		s.DiscoveringDynamicSharedInformerFactory,
 		quotaResyncPeriod,
 		replenishmentPeriod,
 		workersPerLogicalCluster,
@@ -1272,7 +1272,7 @@ func (s *Server) installGarbageCollectorController(ctx context.Context, config *
 		s.KcpSharedInformerFactory.Tenancy().V1alpha1().ClusterWorkspaces(),
 		kubeClusterClient,
 		metadataClient,
-		s.DynamicDiscoverySharedInformerFactory,
+		s.DiscoveringDynamicSharedInformerFactory,
 		workersPerLogicalCluster,
 		s.syncedCh,
 	)

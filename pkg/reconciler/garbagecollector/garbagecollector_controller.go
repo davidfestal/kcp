@@ -52,7 +52,7 @@ const (
 type Controller struct {
 	queue workqueue.RateLimitingInterface
 
-	dynamicDiscoverySharedInformerFactory *informer.DynamicDiscoverySharedInformerFactory
+	dynamicDiscoverySharedInformerFactory *informer.DiscoveringDynamicSharedInformerFactory
 	kubeClusterClient                     kcpkubernetesclient.ClusterInterface
 	metadataClient                        kcpmetadataclient.ClusterInterface
 	clusterWorkspaceLister                tenancyv1alpha1listers.ClusterWorkspaceClusterLister
@@ -72,7 +72,7 @@ func NewController(
 	clusterWorkspaceInformer tenancyv1alpha1informers.ClusterWorkspaceClusterInformer,
 	kubeClusterClient kcpkubernetesclient.ClusterInterface,
 	metadataClient kcpmetadataclient.ClusterInterface,
-	dynamicDiscoverySharedInformerFactory *informer.DynamicDiscoverySharedInformerFactory,
+	dynamicDiscoverySharedInformerFactory *informer.DiscoveringDynamicSharedInformerFactory,
 	workersPerLogicalCluster int,
 	informersStarted <-chan struct{},
 ) (*Controller, error) {

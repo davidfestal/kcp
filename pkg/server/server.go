@@ -84,7 +84,7 @@ func NewServer(c CompletedConfig) (*Server, error) {
 		),
 	)
 
-	s.DynamicDiscoverySharedInformerFactory, err = informer.NewDynamicDiscoverySharedInformerFactory(
+	s.DiscoveringDynamicSharedInformerFactory, err = informer.NewSelfDiscoveringDynamicSharedInformerFactory(
 		s.MiniAggregator.GenericAPIServer.LoopbackClientConfig,
 		func(obj interface{}) bool { return true },
 		s.ApiExtensionsSharedInformerFactory.Apiextensions().V1().CustomResourceDefinitions(),
@@ -300,7 +300,7 @@ func (s *Server) Run(ctx context.Context) error {
 		logger.Info("finished starting (remaining) kcp informers")
 
 		logger.Info("starting dynamic metadata informer worker")
-		go s.DynamicDiscoverySharedInformerFactory.StartWorker(goContext(hookContext))
+		go s.DiscoveringDynamicSharedInformerFactory.StartWorker(goContext(hookContext))
 
 		logger.Info("synced all informers, ready to start controllers")
 		close(s.syncedCh)
@@ -436,13 +436,13 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	if s.Options.Controllers.EnableAll || enabled.Has("resource-scheduler") {
-		if err := s.installWorkloadResourceScheduler(ctx, controllerConfig, s.DynamicDiscoverySharedInformerFactory); err != nil {
+		if err := s.installWorkloadResourceScheduler(ctx, controllerConfig, s.DiscoveringDynamicSharedInformerFactory); err != nil {
 			return err
 		}
 	}
 
 	if s.Options.Controllers.EnableAll || enabled.Has("apibinding") {
-		if err := s.installAPIBindingController(ctx, controllerConfig, delegationChainHead, s.DynamicDiscoverySharedInformerFactory); err != nil {
+		if err := s.installAPIBindingController(ctx, controllerConfig, delegationChainHead, s.DiscoveringDynamicSharedInformerFactory); err != nil {
 			return err
 		}
 		if err := s.installCRDCleanupController(ctx, controllerConfig, delegationChainHead); err != nil {

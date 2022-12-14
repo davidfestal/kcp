@@ -45,6 +45,7 @@ import (
 	kcpinformers "github.com/kcp-dev/kcp/pkg/client/informers/externalversions"
 	kcpfeatures "github.com/kcp-dev/kcp/pkg/features"
 	ddsif "github.com/kcp-dev/kcp/pkg/informer"
+	"github.com/kcp-dev/kcp/pkg/syncer/controllermanager"
 	"github.com/kcp-dev/kcp/pkg/syncer/indexers"
 	"github.com/kcp-dev/kcp/pkg/syncer/namespace"
 	"github.com/kcp-dev/kcp/pkg/syncer/resourcesync"
@@ -282,6 +283,28 @@ func StartSyncer(ctx context.Context, cfg *SyncerConfig, numSyncerThreads int, i
 	go specSyncer.Start(ctx, numSyncerThreads)
 	go statusSyncer.Start(ctx, numSyncerThreads)
 	go downstreamNamespaceController.Start(ctx, numSyncerThreads)
+
+	upstreamSyncerControllerManager := controllermanager.NewControllerManager(ctx,
+		controllermanager.InformerSource{
+			Subscribe: ddsifForUpstreamSyncer.Subscribe,
+			Informer: func(gvr schema.GroupVersionResource) (cache.SharedIndexInformer, bool, bool) {
+				return ddsifForUpstreamSyncer.Informer(gvr)
+			},
+		},
+		map[string]controllermanager.ControllerDefintion{},
+	)
+
+	go upstreamSyncerControllerManager.Start(ctx)
+
+	downstreamSyncerControllerManager := controllermanager.NewControllerManager(ctx,
+		controllermanager.InformerSource{
+			Subscribe: ddsifForDownstream.Subscribe,
+			Informer:  ddsifForDownstream.Informer,
+		},
+		map[string]controllermanager.ControllerDefintion{},
+	)
+
+	go downstreamSyncerControllerManager.Start(ctx)
 
 	if kcpfeatures.DefaultFeatureGate.Enabled(kcpfeatures.SyncerTunnel) {
 		go startSyncerTunnel(ctx, upstreamConfig, downstreamConfig, cfg.SyncTargetWorkspace, cfg.SyncTargetName)

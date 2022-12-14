@@ -21,17 +21,17 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
 	"github.com/kcp-dev/kcp/pkg/logging"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
 const (
-	ControllerName = "syncer-controller-manager"
+	ControllerNamePrefix = "syncer-controller-manager-"
 )
 
 type InformerSource struct {
@@ -40,28 +40,25 @@ type InformerSource struct {
 }
 
 type Controller interface {
-	Start(ctx context.Context)
+	Start(ctx context.Context, numThreads int)
 }
 
-type ControllerDefintion interface {
-	Create(informers map[schema.GroupVersionResource]cache.SharedIndexInformer) (Controller, error)
-	GetRequiredGVRs() []schema.GroupVersionResource
+type ControllerDefintion struct {
+	RequiredGVRs []schema.GroupVersionResource
+	NumThreads   int
+	Create       func(syncedInformers map[schema.GroupVersionResource]cache.SharedIndexInformer) (Controller, error)
 }
 
-func NewControllerManager(ctx context.Context, informerSource InformerSource, controllers map[string]ControllerDefintion) *ControllerManager {
-	// Here we diverge from what upstream does. Upstream starts a goroutine that retrieves discovery every 30 seconds,
-	// starting/stopping dynamic informers as needed based on the updated discovery data. We know that kcp contains
-	// the combination of built-in types plus CRDs. We use that information to drive what quota evaluates.
-
+func NewControllerManager(ctx context.Context, suffix string, informerSource InformerSource, controllers map[string]ControllerDefintion) *ControllerManager {
 	controllerManager := ControllerManager{
-		queue:                 workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), ControllerName),
+		name:                  ControllerNamePrefix + suffix,
+		queue:                 workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), ControllerNamePrefix+suffix),
 		informerSource:        informerSource,
 		controllerDefinitions: controllers,
 		startedControllers:    map[string]context.CancelFunc{},
 	}
-	go controllerManager.Start(ctx)
 
-	apisChanged := informerSource.Subscribe(ControllerName)
+	apisChanged := informerSource.Subscribe(controllerManager.name)
 
 	logger := klog.FromContext(ctx)
 
@@ -77,18 +74,15 @@ func NewControllerManager(ctx context.Context, informerSource InformerSource, co
 		}
 	}()
 
-	// Make sure the monitors are synced at least once
-	controllerManager.UpdateControllers(ctx)
-
 	return &controllerManager
 }
 
 type ControllerManager struct {
+	name                  string
 	queue                 workqueue.RateLimitingInterface
 	informerSource        InformerSource
 	controllerDefinitions map[string]ControllerDefintion
 	startedControllers    map[string]context.CancelFunc
-	previousCancel        func()
 }
 
 // Start starts the controller, which stops when ctx.Done() is closed.
@@ -96,16 +90,12 @@ func (c *ControllerManager) Start(ctx context.Context) {
 	defer utilruntime.HandleCrash()
 	defer c.queue.ShutDown()
 
-	logger := logging.WithReconciler(klog.FromContext(ctx), ControllerName)
-	ctx = klog.NewContext(ctx, logger)
-	logger.Info("Starting controller")
-	defer logger.Info("Shutting down controller")
+	logger := logging.WithReconciler(klog.FromContext(ctx), c.name)
+	logger.Info("Starting controller manager")
+	defer logger.Info("Shutting down controller manager")
 
 	go wait.UntilWithContext(ctx, c.startWorker, time.Second)
 	<-ctx.Done()
-	if c.previousCancel != nil {
-		c.previousCancel()
-	}
 }
 
 func (c *ControllerManager) startWorker(ctx context.Context) {
@@ -120,11 +110,6 @@ func (c *ControllerManager) processNextWorkItem(ctx context.Context) bool {
 	}
 	defer c.queue.Done(key)
 
-	if c.previousCancel != nil {
-		c.previousCancel()
-	}
-
-	ctx, c.previousCancel = context.WithCancel(ctx)
 	c.UpdateControllers(ctx)
 	c.queue.Forget(key)
 	return true
@@ -135,7 +120,7 @@ func (c *ControllerManager) UpdateControllers(ctx context.Context) {
 	controllersToStart := map[string]map[schema.GroupVersionResource]cache.SharedIndexInformer{}
 controllerLoop:
 	for controllerName, controllerDefinition := range c.controllerDefinitions {
-		requiredGVRs := controllerDefinition.GetRequiredGVRs()
+		requiredGVRs := controllerDefinition.RequiredGVRs
 		informers := make(map[schema.GroupVersionResource]cache.SharedIndexInformer, len(requiredGVRs))
 		for _, gvr := range requiredGVRs {
 			if informer, known, synced := c.informerSource.Informer(gvr); !known {
@@ -151,7 +136,8 @@ controllerLoop:
 		controllersToStart[controllerName] = informers
 	}
 
-	// Add missing controllers that have their required GVRs synced
+	// Create and start missing controllers that have their required GVRs synced
+	newlyStartedControllers := map[string]context.CancelFunc{}
 	for controllerName, informers := range controllersToStart {
 		if _, ok := c.startedControllers[controllerName]; ok {
 			// The controller is already started
@@ -172,8 +158,8 @@ controllerLoop:
 
 		// Start the controller
 		controllerContext, cancelFunc := context.WithCancel(ctx)
-		controller.Start(controllerContext)
-		c.startedControllers[ControllerName] = cancelFunc
+		go controller.Start(controllerContext, controllerDefinition.NumThreads)
+		newlyStartedControllers[c.name] = cancelFunc
 	}
 
 	// Remove obsolete controllers that don't have their required GVRs anymore
@@ -186,5 +172,10 @@ controllerLoop:
 		// Stop it and remove it from the list of started controllers
 		cancelFunc()
 		delete(c.startedControllers, controllerName)
+	}
+
+	// Add missing controllers that were created and started above
+	for controllerName, cancelFunc := range newlyStartedControllers {
+		c.startedControllers[controllerName] = cancelFunc
 	}
 }

@@ -285,6 +285,7 @@ func StartSyncer(ctx context.Context, cfg *SyncerConfig, numSyncerThreads int, i
 	go downstreamNamespaceController.Start(ctx, numSyncerThreads)
 
 	upstreamSyncerControllerManager := controllermanager.NewControllerManager(ctx,
+		"upstream",
 		controllermanager.InformerSource{
 			Subscribe: ddsifForUpstreamSyncer.Subscribe,
 			Informer: func(gvr schema.GroupVersionResource) (cache.SharedIndexInformer, bool, bool) {
@@ -293,17 +294,16 @@ func StartSyncer(ctx context.Context, cfg *SyncerConfig, numSyncerThreads int, i
 		},
 		map[string]controllermanager.ControllerDefintion{},
 	)
-
 	go upstreamSyncerControllerManager.Start(ctx)
 
 	downstreamSyncerControllerManager := controllermanager.NewControllerManager(ctx,
+		"downstream",
 		controllermanager.InformerSource{
 			Subscribe: ddsifForDownstream.Subscribe,
 			Informer:  ddsifForDownstream.Informer,
 		},
 		map[string]controllermanager.ControllerDefintion{},
 	)
-
 	go downstreamSyncerControllerManager.Start(ctx)
 
 	if kcpfeatures.DefaultFeatureGate.Enabled(kcpfeatures.SyncerTunnel) {

@@ -26,13 +26,13 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	kcpcache "github.com/kcp-dev/apimachinery/pkg/cache"
-	kcpdynamicinformer "github.com/kcp-dev/client-go/dynamic/dynamicinformer"
 	"github.com/kcp-dev/logicalcluster/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	kcpfakedynamic "github.com/kcp-dev/client-go/third_party/k8s.io/client-go/dynamic/fake"
 	kcptesting "github.com/kcp-dev/client-go/third_party/k8s.io/client-go/testing"
+	ddsif "github.com/kcp-dev/kcp/pkg/informer"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,15 +42,17 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/client-go/dynamic/dynamicinformer"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/informers"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
 	workloadv1alpha1 "github.com/kcp-dev/kcp/pkg/apis/workload/v1alpha1"
+	"github.com/kcp-dev/kcp/pkg/syncer/indexers"
 	"github.com/kcp-dev/kcp/pkg/syncer/spec/dns"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 
 var scheme *runtime.Scheme
@@ -468,6 +470,37 @@ func TestDeepEqualApartFromStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+var _ ddsif.GVRSource = (*mockedGVRSource)(nil)
+
+type mockedGVRSource struct {
+}
+
+func (s *mockedGVRSource) GVRs() map[schema.GroupVersionResource]ddsif.GVRPartialMetadata {
+	return map[schema.GroupVersionResource]ddsif.GVRPartialMetadata{
+		appsv1.SchemeGroupVersion.WithResource("deployments"): {
+			Names: apiextensionsv1.CustomResourceDefinitionNames{
+				Singular: "deployment",
+				Kind:     "Deployment",
+			},
+		},
+	}
+}
+
+func (s *mockedGVRSource) Synced() bool {
+	return true
+}
+
+func (s *mockedGVRSource) Changes() <-chan struct{} {
+	return make(<-chan struct{})
+}
+
+func (s *mockedGVRSource) FilterBuiltinGVRs(gvr schema.GroupVersionResource) bool {
+	if gvr.Resource == "secrets" || gvr.Resource == "namespaces" {
+		return true
+	}
+	return false
 }
 
 func TestSyncerProcess(t *testing.T) {
@@ -1043,12 +1076,19 @@ func TestSyncerProcess(t *testing.T) {
 			toClient := dynamicfake.NewSimpleDynamicClient(scheme, tc.toResources...)
 			toKubeClient := kubefake.NewSimpleClientset(tc.toResources...)
 
-			fromInformers := kcpdynamicinformer.NewFilteredDynamicSharedInformerFactory(fromClusterClient, time.Hour, func(o *metav1.ListOptions) {
-				o.LabelSelector = workloadv1alpha1.ClusterResourceStateLabelPrefix + syncTargetKey + "=" + string(workloadv1alpha1.ResourceStateSync)
-			})
-			toInformers := dynamicinformer.NewFilteredDynamicSharedInformerFactory(toClient, time.Hour, metav1.NamespaceAll, func(o *metav1.ListOptions) {
-				o.LabelSelector = workloadv1alpha1.ClusterResourceStateLabelPrefix + syncTargetKey + "=" + string(workloadv1alpha1.ResourceStateSync)
-			})
+			ddsifForUpstreamSyncer, err := ddsif.NewDiscoveringDynamicSharedInformerFactory(fromClusterClient, nil, nil, &mockedGVRSource{}, cache.Indexers{})
+			require.NoError(t, err)
+
+			ddsifForDownstream, err := ddsif.NewScopedDiscoveringDynamicSharedInformerFactory(toClient, nil,
+				func(o *metav1.ListOptions) {
+					o.LabelSelector = workloadv1alpha1.InternalDownstreamClusterLabel + "=" + syncTargetKey
+				},
+				&mockedGVRSource{},
+				cache.Indexers{
+					indexers.ByNamespaceLocatorIndexName: indexers.IndexByNamespaceLocator,
+				},
+			)
+			require.NoError(t, err)
 
 			setupServersideApplyPatchReactor(toClient)
 			resourceWatcherStarted := setupWatchReactor(tc.gvr.Resource, fromClusterClient)
@@ -1064,17 +1104,25 @@ func TestSyncerProcess(t *testing.T) {
 				toClean: sets.String{},
 			}
 			controller, err := NewSpecSyncer(logger, kcpLogicalCluster, tc.syncTargetName, syncTargetKey, upstreamURL, tc.advancedSchedulingEnabled,
-				fromClusterClient, toClient, toKubeClient, nil, nil, mockedCleaner, syncTargetUID,
+				fromClusterClient, toClient, toKubeClient, ddsifForUpstreamSyncer, ddsifForDownstream, mockedCleaner, syncTargetUID,
 				"kcp-01c0zzvlqsi7n", toInformerFactory, "dnsimage")
 			require.NoError(t, err)
 
-			fromInformers.Start(ctx.Done())
-			toInformers.Start(ctx.Done())
 			toInformerFactory.Start(ctx.Done())
-
-			fromInformers.WaitForCacheSync(ctx.Done())
-			toInformers.WaitForCacheSync(ctx.Done())
 			toInformerFactory.WaitForCacheSync(ctx.Done())
+
+			for _, alwaysRequired := range []string{"secrets", "namespaces"} {
+				_, err = ddsifForUpstreamSyncer.ForResource(schema.GroupVersionResource{Group: "", Version: "v1", Resource: alwaysRequired})
+				require.NoError(t, err)
+
+				_, err := ddsifForDownstream.ForResource(schema.GroupVersionResource{Group: "", Version: "v1", Resource: alwaysRequired})
+				require.NoError(t, err)
+			}
+			ddsifForUpstreamSyncer.Start(ctx.Done())
+			ddsifForDownstream.Start(ctx.Done())
+
+			go ddsifForUpstreamSyncer.StartWorker(ctx)
+			go ddsifForDownstream.StartWorker(ctx)
 
 			<-resourceWatcherStarted
 

@@ -18,6 +18,7 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -29,11 +30,14 @@ import (
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/retry"
 
 	workloadv1alpha1 "github.com/kcp-dev/kcp/pkg/apis/workload/v1alpha1"
+	"github.com/kcp-dev/kcp/pkg/syncer/shared"
+	"github.com/kcp-dev/kcp/pkg/syncer/storage"
 	kubefixtures "github.com/kcp-dev/kcp/test/e2e/fixtures/kube"
 	"github.com/kcp-dev/kcp/test/e2e/framework"
 )
@@ -67,6 +71,106 @@ func TestPersistentVolumeSyncer(t *testing.T) {
 				_, err = kubeClusterClient.CoreV1().Cluster(workspaceName).Namespaces().Create(ctx, ns, metav1.CreateOptions{})
 				require.NoError(t, err)
 
+				// Create Downstream PVC with a delayed status syncing annotation
+
+				pvcNamespaceLocator := shared.NewNamespaceLocator(workspaceName, syncer.SyncerConfig.SyncTargetWorkspace, types.UID(syncer.SyncerConfig.SyncTargetUID), syncer.SyncerConfig.SyncTargetName, ns.Name)
+				downstreamNamespaceName, err := shared.PhysicalClusterNamespaceName(pvcNamespaceLocator)
+				require.NoError(t, err)
+				pvcNamespaceLocatorAnnotation, err := json.Marshal(pvcNamespaceLocator)
+				require.NoError(t, err)
+
+				_, err = syncer.DownstreamKubeClient.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: downstreamNamespaceName,
+						Annotations: map[string]string{
+							shared.NamespaceLocatorAnnotation: string(pvcNamespaceLocatorAnnotation),
+						},
+					},
+				}, metav1.CreateOptions{})
+				require.NoError(t, err)
+
+				downstreamPVC := &corev1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pvc",
+						Namespace: downstreamNamespaceName,
+						Labels: map[string]string{
+							workloadv1alpha1.InternalDownstreamClusterLabel:                  syncTargetKey,
+							workloadv1alpha1.ClusterResourceStateLabelPrefix + syncTargetKey: "Sync",
+						},
+						Annotations: map[string]string{
+							shared.NamespaceLocatorAnnotation: string(pvcNamespaceLocatorAnnotation),
+							storage.DelayStatusSyncing:        "true",
+						},
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{
+							corev1.ReadWriteOnce,
+						},
+					},
+				}
+
+				downstreamPVC, err = syncer.DownstreamKubeClient.CoreV1().PersistentVolumeClaims(downstreamNamespaceName).Create(ctx, downstreamPVC, metav1.CreateOptions{})
+				require.NoError(t, err)
+
+				// Create DownstreamPV linked to the downstream PVC
+
+				pvNamespaceLocator := shared.NewNamespaceLocator(workspaceName, syncer.SyncerConfig.SyncTargetWorkspace, types.UID(syncer.SyncerConfig.SyncTargetUID), syncer.SyncerConfig.SyncTargetName, "")
+				pvNamespaceLocatorAnnotation, err := json.Marshal(pvNamespaceLocator)
+				require.NoError(t, err)
+				downstreamPV := &corev1.PersistentVolume{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-pv",
+						Labels: map[string]string{
+							workloadv1alpha1.InternalDownstreamClusterLabel:                  syncTargetKey,
+							workloadv1alpha1.ClusterResourceStateLabelPrefix + syncTargetKey: "Upsync",
+						},
+						Annotations: map[string]string{
+							shared.NamespaceLocatorAnnotation: string(pvNamespaceLocatorAnnotation),
+						},
+					},
+					Spec: corev1.PersistentVolumeSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{
+							corev1.ReadWriteOnce,
+						},
+						PersistentVolumeSource: corev1.PersistentVolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: "/tmp/data",
+							},
+						},
+						ClaimRef: &corev1.ObjectReference{
+							Kind:            downstreamPVC.Kind,
+							Namespace:       downstreamPVC.Namespace,
+							Name:            downstreamPVC.Name,
+							UID:             downstreamPVC.UID,
+							APIVersion:      downstreamPVC.APIVersion,
+							ResourceVersion: downstreamPVC.ResourceVersion,
+						},
+					},
+				}
+				downstreamPV, err = syncer.DownstreamKubeClient.CoreV1().PersistentVolumes().Create(ctx, downstreamPV, metav1.CreateOptions{})
+				require.NoError(t, err)
+
+				logWithTimestamp(t, "Wait for downstreamPV PV to be created...")
+				err = retry.OnError(retry.DefaultBackoff, errors.IsNotFound, func() error {
+					downstreamPV, err = syncer.DownstreamKubeClient.CoreV1().PersistentVolumes().Get(ctx, downstreamPV.Name, metav1.GetOptions{})
+					return err
+				})
+				require.NoError(t, err)
+
+				logWithTimestamp(t, "Wait for downstreamPVC PV to be created, and set status to Bound...")
+				err = retry.OnError(retry.DefaultBackoff, errors.IsNotFound, func() error {
+					downstreamPVC, err = syncer.DownstreamKubeClient.CoreV1().PersistentVolumeClaims(downstreamNamespaceName).Get(ctx, downstreamPVC.Name, metav1.GetOptions{})
+					if err != nil {
+						return err
+					}
+					downstreamPVC.Status = corev1.PersistentVolumeClaimStatus{
+						Phase: corev1.ClaimBound,
+					}
+					_, err := syncer.DownstreamKubeClient.CoreV1().PersistentVolumeClaims(downstreamNamespaceName).UpdateStatus(ctx, downstreamPVC, metav1.UpdateOptions{})
+					return err
+				})
+				require.NoError(t, err)
+
 				logWithTimestamp(t, "Create upstream PV")
 				upstreamPV := &corev1.PersistentVolume{
 					ObjectMeta: metav1.ObjectMeta{
@@ -96,48 +200,14 @@ func TestPersistentVolumeSyncer(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				downstreamPV := &corev1.PersistentVolume{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-pv",
-						Labels: map[string]string{
-							workloadv1alpha1.InternalDownstreamClusterLabel: syncTargetKey,
-						},
-					},
-					Spec: corev1.PersistentVolumeSpec{
-						AccessModes: []corev1.PersistentVolumeAccessMode{
-							corev1.ReadWriteOnce,
-						},
-						PersistentVolumeSource: corev1.PersistentVolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/tmp/data",
-							},
-						},
-					},
-				}
-				downstreamPV, err = syncer.DownstreamKubeClient.CoreV1().PersistentVolumes().Create(ctx, downstreamPV, metav1.CreateOptions{})
-				require.NoError(t, err)
+				logWithTimestamp(t, "Wait for downstream PVC to be synced...")
+				framework.Eventually(t, func() (success bool, reason string) {
+					downstreamPVC, err = syncer.DownstreamKubeClient.CoreV1().PersistentVolumeClaims(downstreamNamespaceName).Get(ctx, "test-pvc", metav1.GetOptions{})
+					require.NoError(t, err)
 
-				logWithTimestamp(t, "Wait for downstreamPV PV to be created...")
-				err = retry.OnError(retry.DefaultBackoff, errors.IsNotFound, func() error {
-					upstreamPV, err = syncer.DownstreamKubeClient.CoreV1().PersistentVolumes().Get(ctx, downstreamPV.Name, metav1.GetOptions{})
-					return err
-				})
-				require.NoError(t, err)
-
-				// logWithTimestamp(t, "Wait for downstream PV to be synced...")
-				// framework.Eventually(t, func() (success bool, reason string) {
-				// 	_, err = syncer.DownstreamKubeClient.CoreV1().PersistentVolumes().Get(ctx, upstreamPV.Name, metav1.GetOptions{})
-				// 	if errors.IsNotFound(err) {
-				// 		return false, "Downstream PV not synced"
-				// 	}
-				// 	require.NoError(t, err)
-				// 	return true, ""
-				// }, wait.ForeverTestTimeout, time.Millisecond*100, "Downstream PV should have been synced")
-
-				// desiredNSLocator := shared.NewNamespaceLocator(workspaceName, syncer.SyncerConfig.SyncTargetWorkspace, types.UID(syncer.SyncerConfig.SyncTargetUID), syncer.SyncerConfig.SyncTargetName, ns.Name)
-				// downstreamNamespaceName, err := shared.PhysicalClusterNamespaceName(desiredNSLocator)
-				require.NoError(t, err)
-
+					_, exists := downstreamPVC.Annotations[storage.DelayStatusSyncing]
+					return !exists, "Delatyed status syncing is still there"
+				}, wait.ForeverTestTimeout, time.Millisecond*100, "Delatyed status syncing annotation should have been removed")
 			},
 		},
 	}
@@ -157,7 +227,7 @@ func TestPersistentVolumeSyncer(t *testing.T) {
 
 			logWithTimestamp(t, "Deploying syncer into workspace %s", pvController)
 			syncer := framework.NewSyncerFixture(t, server, pvController,
-				framework.WithSyncTargetName("syncer"),
+				framework.WithSyncTargetName("synctarget"),
 				framework.WithExtraResources("persistentvolumes", "persistentvolumeclaims"),
 				framework.WithAPIExports(""),
 				framework.WithDownstreamPreparation(func(config *rest.Config, isFakePCluster bool) {

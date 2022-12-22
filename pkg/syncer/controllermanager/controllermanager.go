@@ -156,6 +156,13 @@ controllerLoop:
 			continue
 		}
 
+		for _, informer := range informers {
+			if err := informer.GetStore().Resync(); err != nil {
+				logger.Error(err, "error resyncing informer controller", "controller", controllerName)
+				continue
+			}
+		}
+
 		// Start the controller
 		controllerContext, cancelFunc := context.WithCancel(ctx)
 		go controller.Start(controllerContext, controllerDefinition.NumThreads)

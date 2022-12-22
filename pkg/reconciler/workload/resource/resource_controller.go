@@ -486,6 +486,16 @@ func (c *Controller) enqueueSyncTargetKey(syncTargetKey string) {
 	}
 }
 
+// isUpSynced
+func isUpSynced(labels map[string]string) bool {
+	for k, v := range labels {
+		if strings.HasPrefix(k, workloadv1alpha1.ClusterResourceStateLabelPrefix) && v == string(workloadv1alpha1.ResourceStateUpsync) {
+			return true
+		}
+	}
+	return false
+}
+
 // getLocations returns a set with of all the locations extracted from a resource labels, setting skipPending to true will ignore resources in not Sync state.
 func getLocations(labels map[string]string, skipPending bool) sets.String {
 	locations := sets.NewString()

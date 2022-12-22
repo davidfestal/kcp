@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -55,6 +56,7 @@ var (
 type PersistentVolumeClaimController struct {
 	queue                              workqueue.RateLimitingInterface
 	ddsifForUpstreamSyncer             *ddsif.DiscoveringDynamicSharedInformerFactory
+	downstreamClient                   dynamic.Interface
 	syncTarget                         syncTargetSpec
 	updateDownstreamPersistentVolume   func(ctx context.Context, persistentVolume *corev1.PersistentVolume) (*corev1.PersistentVolume, error)
 	getDownstreamPersistentVolumeClaim func(persistentVolumeClaimName, persistentVolumeClaimNamespace string) (runtime.Object, error)
@@ -105,14 +107,14 @@ func NewPersistentVolumeClaimSyncer(
 		getDownstreamPersistentVolumeClaim: func(persistentVolumeClaimName, persistentVolumeClaimNamespace string) (runtime.Object, error) {
 			lister, known, synced := ddsifForDownstream.Lister(persistentVolumeClaimSchemeGroupVersion)
 			if !known || !synced {
-				return nil, errors.New("informer should be up and synced for persistentvolumeclaims in the upstream syncer informer factory")
+				return nil, errors.New("informer should be up and synced for persistentvolumeclaims in the downstream syncer informer factory")
 			}
 			return lister.ByNamespace(persistentVolumeClaimNamespace).Get(persistentVolumeClaimName)
 		},
 		getDownstreamPersistentVolume: func(persistentVolumeName string) (runtime.Object, error) {
 			lister, known, synced := ddsifForDownstream.Lister(persistentVolumeSchemeGroupVersion)
 			if !known || !synced {
-				return nil, errors.New("informer should be up and synced for persistentvolumeclaims in the upstream syncer informer factory")
+				return nil, errors.New("informer should be up and synced for persistentvolumeclaims in the downstream syncer informer factory")
 			}
 			return lister.Get(persistentVolumeName)
 		},
@@ -142,8 +144,9 @@ func NewPersistentVolumeClaimSyncer(
 	logger.V(2).Info("Setting up downstream informer", persistentVolumeClaimSchemeGroupVersion.String())
 	pvcInformer, ok := syncedInformers[persistentVolumeClaimSchemeGroupVersion]
 	if !ok {
-		return nil, errors.New("endpoints informer should be available")
+		return nil, fmt.Errorf("informer for %s not found", persistentVolumeClaimSchemeGroupVersion.String())
 	}
+
 	pvcInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			c.AddToQueue(obj, logger)

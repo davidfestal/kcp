@@ -113,7 +113,7 @@ func NewPersistentVolumeSyncer(
 	logger.V(2).Info("Setting upstream up informer", persistentVolumeSchemeGroupVersion.String())
 	pvInformer, ok := syncedInformers[persistentVolumeSchemeGroupVersion]
 	if !ok {
-		return nil, errors.New("persistentvolumes informer should be available")
+		return nil, fmt.Errorf("informer for %s not found", persistentVolumeClaimSchemeGroupVersion.String())
 	}
 
 	pvInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{

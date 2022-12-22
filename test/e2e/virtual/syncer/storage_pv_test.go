@@ -200,7 +200,7 @@ func TestPersistentVolumeSyncer(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				logWithTimestamp(t, "Wait for downstream PVC to be synced...")
+				logWithTimestamp(t, "Wait for downstream PVC to be updated...")
 				framework.Eventually(t, func() (success bool, reason string) {
 					downstreamPVC, err = syncer.DownstreamKubeClient.CoreV1().PersistentVolumeClaims(downstreamNamespaceName).Get(ctx, "test-pvc", metav1.GetOptions{})
 					require.NoError(t, err)
@@ -227,7 +227,7 @@ func TestPersistentVolumeSyncer(t *testing.T) {
 
 			logWithTimestamp(t, "Deploying syncer into workspace %s", pvController)
 			syncer := framework.NewSyncerFixture(t, server, pvController,
-				framework.WithSyncTargetName("synctarget"),
+				framework.WithSyncTargetName("syncer"),
 				framework.WithExtraResources("persistentvolumes", "persistentvolumeclaims"),
 				framework.WithAPIExports(""),
 				framework.WithDownstreamPreparation(func(config *rest.Config, isFakePCluster bool) {

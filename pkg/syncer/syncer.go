@@ -45,6 +45,7 @@ import (
 	kcpclusterclientset "github.com/kcp-dev/kcp/pkg/client/clientset/versioned/cluster"
 	kcpinformers "github.com/kcp-dev/kcp/pkg/client/informers/externalversions"
 	kcpfeatures "github.com/kcp-dev/kcp/pkg/features"
+	"github.com/kcp-dev/kcp/pkg/informer"
 	ddsif "github.com/kcp-dev/kcp/pkg/informer"
 	"github.com/kcp-dev/kcp/pkg/syncer/controllermanager"
 	"github.com/kcp-dev/kcp/pkg/syncer/endpoints"
@@ -65,6 +66,27 @@ const (
 	// TODO(marun) Coordinate this value with the interval configured for the heartbeat controller
 	heartbeatInterval = 20 * time.Second
 )
+
+type FilteredGVRSource struct {
+	informer.GVRSource
+	skipGVR func(gvr schema.GroupVersionResource) bool
+}
+
+func (s *FilteredGVRSource) GVRs() map[schema.GroupVersionResource]informer.GVRPartialMetadata {
+	gvrs := s.GVRSource.GVRs()
+	filteredGVRs := make(map[schema.GroupVersionResource]informer.GVRPartialMetadata, len(gvrs))
+	for gvr, metadata := range gvrs {
+		if s.skipGVR(gvr) {
+			continue
+		}
+		filteredGVRs[gvr] = metadata
+	}
+	return filteredGVRs
+}
+
+func (s *FilteredGVRSource) FilterBuiltinGVRs(gvr schema.GroupVersionResource) bool {
+	return s.GVRSource.FilterBuiltinGVRs(gvr) && !s.skipGVR(gvr)
+}
 
 // SyncerConfig defines the syncer configuration that is guaranteed to
 // vary across syncer deployments. Capturing these details in a struct
@@ -225,7 +247,17 @@ func StartSyncer(ctx context.Context, cfg *SyncerConfig, numSyncerThreads int, i
 		return err
 	}
 
-	ddsifForUpstreamUpsyncer, err := ddsif.NewDiscoveringDynamicSharedInformerFactory(upstreamUpsyncerClusterClient, nil, nil, resourceController, cache.Indexers{})
+	ddsifForUpstreamUpsyncer, err := ddsif.NewDiscoveringDynamicSharedInformerFactory(upstreamUpsyncerClusterClient, nil, nil,
+		&FilteredGVRSource{
+			resourceController,
+			func(gvr schema.GroupVersionResource) bool {
+				if gvr.Resource == "persistentvolumes" && gvr.Group == "" {
+					return false
+				}
+				return true
+			},
+		},
+		cache.Indexers{})
 	if err != nil {
 		return err
 	}
@@ -319,21 +351,20 @@ func StartSyncer(ctx context.Context, cfg *SyncerConfig, numSyncerThreads int, i
 	upstreamUpsyncerControllerManager := controllermanager.NewControllerManager(ctx,
 		"upstream-upsyncer",
 		controllermanager.InformerSource{
-			Subscribe: ddsifForUpstreamSyncer.Subscribe,
+			Subscribe: ddsifForUpstreamUpsyncer.Subscribe,
 			Informer: func(gvr schema.GroupVersionResource) (cache.SharedIndexInformer, bool, bool) {
-				return ddsifForUpstreamSyncer.Informer(gvr)
+				return ddsifForUpstreamUpsyncer.Informer(gvr)
 			},
 		},
 		map[string]controllermanager.ControllerDefintion{
-			storage.PersistentVolumeClaimControllerName: {
+			storage.PersistentVolumeControllerName: {
 				RequiredGVRs: []schema.GroupVersionResource{
-					{Group: "", Version: "v1", Resource: "persistentvolumeclaims"},
 					{Group: "", Version: "v1", Resource: "persistentvolumes"},
 				},
 				NumThreads: 2,
 				Create: func(syncedInformers map[schema.GroupVersionResource]cache.SharedIndexInformer) (controllermanager.Controller, error) {
 					return storage.NewPersistentVolumeSyncer(logger, cfg.SyncTargetWorkspace, cfg.SyncTargetName, syncTargetKey,
-						downstreamKubeClient, ddsifForUpstreamSyncer, ddsifForDownstream, syncedInformers, syncTarget.GetUID())
+						downstreamKubeClient, ddsifForUpstreamUpsyncer, ddsifForDownstream, syncedInformers, syncTarget.GetUID())
 				},
 			},
 		},

@@ -18,7 +18,6 @@ package storage
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -40,26 +39,23 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
-	"github.com/kcp-dev/kcp/pkg/indexers"
 	ddsif "github.com/kcp-dev/kcp/pkg/informer"
 	"github.com/kcp-dev/kcp/pkg/logging"
-	"github.com/kcp-dev/kcp/pkg/syncer/shared"
 )
 
 const (
-	persistentVolumeControllerName = "kcp-workload-syncer-storage-pv"
-	byNamespaceLocatorIndexName    = "syncer-persistent-volume-ByNamespaceLocator"
+	PersistentVolumeControllerName = "kcp-workload-syncer-storage-pv"
 )
 
 type PersistentVolumeController struct {
-	queue                                             workqueue.RateLimitingInterface
-	ddsifForUpstreamUpsyncer                          *ddsif.DiscoveringDynamicSharedInformerFactory
-	ddsifForDownstream                                *ddsif.GenericDiscoveringDynamicSharedInformerFactory[cache.SharedIndexInformer, cache.GenericLister, informers.GenericInformer]
-	syncTarget                                        syncTargetSpec
-	updateDownstreamPersistentVolumeClaim             func(ctx context.Context, persistentVolumeClaim *corev1.PersistentVolumeClaim) (*corev1.PersistentVolumeClaim, error)
-	getDownstreamPersistentVolumeFromNamespaceLocator func(namespaceLocator shared.NamespaceLocator) (*corev1.PersistentVolume, error)
-	getDownstreamPersistentVolumeClaim                func(persistentVolumeClaimName, persistentVolumeClaimNamespace string) (runtime.Object, error)
-	getUpstreamPersistentVolume                       func(clusterName logicalcluster.Name, persistentVolumeName string) (runtime.Object, error)
+	queue                                 workqueue.RateLimitingInterface
+	ddsifForUpstreamUpsyncer              *ddsif.DiscoveringDynamicSharedInformerFactory
+	ddsifForDownstream                    *ddsif.GenericDiscoveringDynamicSharedInformerFactory[cache.SharedIndexInformer, cache.GenericLister, informers.GenericInformer]
+	syncTarget                            syncTargetSpec
+	updateDownstreamPersistentVolumeClaim func(ctx context.Context, persistentVolumeClaim *corev1.PersistentVolumeClaim) (*corev1.PersistentVolumeClaim, error)
+	getDownstreamPersistentVolume         func(ctx context.Context, name string) (runtime.Object, error)
+	getDownstreamPersistentVolumeClaim    func(persistentVolumeClaimName, persistentVolumeClaimNamespace string) (runtime.Object, error)
+	getUpstreamPersistentVolume           func(clusterName logicalcluster.Name, persistentVolumeName string) (runtime.Object, error)
 }
 
 // NewPersistentVolumeSyncer returns a new storage persistent volume syncer controller.
@@ -75,7 +71,7 @@ func NewPersistentVolumeSyncer(
 ) (*PersistentVolumeController, error) {
 
 	c := &PersistentVolumeController{
-		queue:                    workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), persistentVolumeControllerName),
+		queue:                    workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), PersistentVolumeControllerName),
 		ddsifForUpstreamUpsyncer: ddsifForUpstreamUpsyncer,
 		ddsifForDownstream:       ddsifForDownstream,
 		syncTarget: syncTargetSpec{
@@ -101,36 +97,17 @@ func NewPersistentVolumeSyncer(
 			}
 			return lister.ByCluster(clusterName).Get(persistentVolumeName)
 		},
-		getDownstreamPersistentVolumeFromNamespaceLocator: func(namespaceLocator shared.NamespaceLocator) (*corev1.PersistentVolume, error) {
-			namespaceLocatorJSONBytes, err := json.Marshal(namespaceLocator)
-			if err != nil {
-				return nil, err
-			}
-
-			informer, known, synced := ddsifForDownstream.Informer(persistentVolumeSchemeGroupVersion)
+		getDownstreamPersistentVolume: func(ctx context.Context, name string) (runtime.Object, error) {
+			lister, known, synced := ddsifForDownstream.Lister(persistentVolumeSchemeGroupVersion)
 			if !known || !synced {
 				return nil, errors.New("informer should be up and synced for persistentvolumes in the downstream syncer informer factory")
 			}
 
-			indexer := informer.GetIndexer()
-			persistentVolumes, err := indexers.ByIndex[*corev1.PersistentVolume](indexer, byNamespaceLocatorIndexName, string(namespaceLocatorJSONBytes))
-			if err != nil {
-				return nil, err
-			}
-
-			if len(persistentVolumes) == 0 {
-				return nil, fmt.Errorf("no persistent volume found for namespace locator %v", namespaceLocator)
-			}
-
-			if len(persistentVolumes) > 1 {
-				return nil, fmt.Errorf("found multiple persistent volumes with namespace locator %v", namespaceLocator)
-			}
-
-			return persistentVolumes[0], nil
+			return lister.Get(name)
 		},
 	}
 
-	logger := logging.WithReconciler(syncerLogger, persistentVolumeControllerName)
+	logger := logging.WithReconciler(syncerLogger, PersistentVolumeControllerName)
 
 	// Add the PV informers to the controller to react to upstream PV events.
 	logger.V(2).Info("Setting upstream up informer", persistentVolumeSchemeGroupVersion.String())
@@ -170,7 +147,7 @@ func (c *PersistentVolumeController) Start(ctx context.Context, numThreads int) 
 	defer utilruntime.HandleCrash()
 	defer c.queue.ShutDown()
 
-	logger := logging.WithReconciler(klog.FromContext(ctx), persistentVolumeControllerName)
+	logger := logging.WithReconciler(klog.FromContext(ctx), PersistentVolumeControllerName)
 	ctx = klog.NewContext(ctx, logger)
 	logger.Info("Starting syncer workers")
 	defer logger.Info("Stopping syncer workers")
@@ -206,7 +183,7 @@ func (c *PersistentVolumeController) processNextWorkItem(ctx context.Context) bo
 	defer c.queue.Done(key)
 
 	if err := c.process(ctx, qk); err != nil {
-		utilruntime.HandleError(fmt.Errorf("%s failed to sync %q, err: %w", persistentVolumeControllerName, key, err))
+		utilruntime.HandleError(fmt.Errorf("%s failed to sync %q, err: %w", PersistentVolumeControllerName, key, err))
 		c.queue.AddRateLimited(key)
 		return true
 	}

@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 
-	workloadv1alpha1 "github.com/kcp-dev/kcp/pkg/apis/workload/v1alpha1"
 	"github.com/kcp-dev/kcp/pkg/logging"
 	"github.com/kcp-dev/kcp/pkg/syncer/shared"
 )
@@ -36,8 +35,7 @@ import (
 func (c *PersistentVolumeController) process(ctx context.Context, key string) error {
 	logger := klog.FromContext(ctx)
 
-	// Note "upstreamNamespace" will be empty since PersistentVolume is cluster-scoped
-	clusterName, upstreamNamespace, name, err := kcpcache.SplitMetaClusterNamespaceKey(key)
+	clusterName, _, name, err := kcpcache.SplitMetaClusterNamespaceKey(key)
 	if err != nil {
 		logger.Error(err, "Invalid key", key)
 		return nil
@@ -57,56 +55,83 @@ func (c *PersistentVolumeController) process(ctx context.Context, key string) er
 
 	logger.V(1).Info("processing upstream PersistentVolume")
 
-	resourceState, ok := upstreamPVUnstructured.GetLabels()[workloadv1alpha1.ClusterResourceStateLabelPrefix+c.syncTarget.key]
-	if ok && resourceState == string(workloadv1alpha1.ResourceStateUpsync) {
-		desiredNSLocator := shared.NewNamespaceLocator(clusterName, c.syncTarget.workspace, c.syncTarget.uid, c.syncTarget.name, upstreamNamespace)
-		downstreamPV, err := c.getDownstreamPersistentVolumeFromNamespaceLocator(desiredNSLocator)
-		if apierrors.IsNotFound(err) {
-			logger.V(4).Info("downstream persistent volume not found, ignoring key")
+	// TODO: Search for the PV downstream with the same name as the one upstream
+	// => No need for a Namespace locator.
+
+	upstreamPVUnstructured.GetName()
+
+	downstreamPVObject, err := c.getDownstreamPersistentVolume(ctx, upstreamPVUnstructured.GetName())
+	if apierrors.IsNotFound(err) {
+		logger.V(4).Info("downstream persistent volume not found, ignoring key")
+		return nil
+	}
+	if err != nil {
+		logger.Error(err, "failed to get downstream persistent volume")
+		return nil
+	}
+
+	if downstreamPVObject == nil {
+		logger.Info("downstream persistent volume is nil, ignoring key")
+		return nil
+	}
+
+	downstreamPVUnstructured, ok := downstreamPVObject.(*unstructured.Unstructured)
+	if !ok {
+		return fmt.Errorf("failed to assert object to Unstructured: %T", downstreamPVObject)
+	}
+
+	if downstreamPVLocator, exists, err := shared.LocatorFromAnnotations(downstreamPVUnstructured.GetAnnotations()); err != nil {
+		return err
+	} else if !exists {
+		logger.Info("downstream persistent volume locator not found, ignoring key")
+		return nil
+	} else {
+		if downstreamPVLocator.SyncTarget.Workspace != c.syncTarget.workspace.String() ||
+			downstreamPVLocator.SyncTarget.Name != c.syncTarget.name ||
+			downstreamPVLocator.SyncTarget.UID != c.syncTarget.uid ||
+			downstreamPVLocator.Workspace != clusterName {
+			logger.Info("downstream persistent volume locator does not match, ignoring key")
 			return nil
-		} else if err != nil {
-			logger.Error(err, "failed to get downstream persistent volume")
-			return nil
 		}
+	}
 
-		if downstreamPV == nil {
-			logger.Info("downstream persistent volume is nil, ignoring key")
-			return nil
-		}
+	var downstreamPV = &corev1.PersistentVolume{}
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(downstreamPVUnstructured.UnstructuredContent(), downstreamPV)
+	if err != nil {
+		return fmt.Errorf("failed to convert unstructured to PersistentVolumeClaim: %w", err)
+	}
 
-		downstreamPVCObject, err := c.getDownstreamPersistentVolumeClaim(downstreamPV.Spec.ClaimRef.Name, downstreamPV.Spec.ClaimRef.Namespace)
-		if err != nil {
-			return fmt.Errorf("failed to get downstream PersistentVolumeClaim: %w", err)
-		}
+	downstreamPVCObject, err := c.getDownstreamPersistentVolumeClaim(downstreamPV.Spec.ClaimRef.Name, downstreamPV.Spec.ClaimRef.Namespace)
+	if err != nil {
+		return fmt.Errorf("failed to get downstream PersistentVolumeClaim: %w", err)
+	}
 
-		downstreamPVCObjectUnstructured, ok := downstreamPVCObject.(*unstructured.Unstructured)
-		if !ok {
-			return fmt.Errorf("failed to assert object to Unstructured: %T", downstreamPVCObject)
-		}
+	downstreamPVCObjectUnstructured, ok := downstreamPVCObject.(*unstructured.Unstructured)
+	if !ok {
+		return fmt.Errorf("failed to assert object to Unstructured: %T", downstreamPVCObject)
+	}
 
-		downstreamPVC := &corev1.PersistentVolumeClaim{}
-		err = runtime.DefaultUnstructuredConverter.FromUnstructured(downstreamPVCObjectUnstructured.UnstructuredContent(), downstreamPVC)
-		if err != nil {
-			return fmt.Errorf("failed to convert unstructured to PersistentVolumeClaim: %w", err)
-		}
+	downstreamPVC := &corev1.PersistentVolumeClaim{}
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(downstreamPVCObjectUnstructured.UnstructuredContent(), downstreamPVC)
+	if err != nil {
+		return fmt.Errorf("failed to convert unstructured to PersistentVolumeClaim: %w", err)
+	}
 
-		// Remove the internal.workload.kcp.dev/delaystatussyncing annotation
-		annotations := downstreamPVCObjectUnstructured.GetAnnotations()
-		if annotations == nil {
-			return fmt.Errorf("failed to get annotations from downstream PersistentVolumeClaim, empty: %w", err)
-		}
+	// Remove the internal.workload.kcp.dev/delaystatussyncing annotation
+	annotations := downstreamPVC.GetAnnotations()
+	if annotations == nil {
+		return nil
+	}
 
+	if _, exists := annotations[DelayStatusSyncing]; exists {
 		delete(annotations, DelayStatusSyncing)
-		downstreamPVCObjectUnstructured.SetAnnotations(annotations)
+		downstreamPVC.SetAnnotations(annotations)
 
+		logger.V(1).Info("Removing DelayStatusSyncing annotation", "name", downstreamPVC.Name)
 		_, err = c.updateDownstreamPersistentVolumeClaim(ctx, downstreamPVC)
 		if err != nil {
 			return fmt.Errorf("failed to update downstream PersistentVolumeClaim: %w", err)
 		}
-
-		logger.V(1).Info("Removed", "DelayStatusSyncing", DelayStatusSyncing, "PersistentVolumeClaim", downstreamPVC.Name)
-		return nil
 	}
-
 	return nil
 }

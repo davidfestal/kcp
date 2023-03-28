@@ -18,7 +18,11 @@ package mutatingwebhook
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
+	"net"
+	"net/url"
 
 	kcpkubernetesinformers "github.com/kcp-dev/client-go/informers"
 	"github.com/kcp-dev/logicalcluster/v3"
@@ -33,9 +37,11 @@ import (
 	"k8s.io/apiserver/pkg/admission/plugin/webhook/mutating"
 	webhookutil "k8s.io/apiserver/pkg/util/webhook"
 	"k8s.io/client-go/informers"
+	"k8s.io/client-go/rest"
 
 	kcpinitializers "github.com/kcp-dev/kcp/pkg/admission/initializers"
 	"github.com/kcp-dev/kcp/pkg/admission/webhook"
+	"github.com/kcp-dev/kcp/pkg/tunnel"
 )
 
 const (
@@ -47,6 +53,8 @@ type Plugin struct {
 	// This plugins admit function will never be called.
 	mutating.Plugin
 	*webhook.WebhookDispatcher
+
+	tunneler *tunnel.Tunneler
 }
 
 var (
@@ -54,6 +62,7 @@ var (
 	_ = admission.InitializationValidator(&Plugin{})
 	_ = kcpinitializers.WantsKcpInformers(&Plugin{})
 	_ = kcpinitializers.WantsKubeInformers(&Plugin{})
+	_ = kcpinitializers.WantsTunneler(&Plugin{})
 )
 
 func NewMutatingAdmissionWebhook(configfile io.Reader) (*Plugin, error) {
@@ -85,9 +94,52 @@ func NewMutatingAdmissionWebhook(configfile io.Reader) (*Plugin, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// TODO(davidfestal): let's have these values fixed for now, just to test.
+	// This should be replaced by functions that use the cached SyncTarget informer
+	// as well as logic similar to what is used in the SubResourceProxyHandler.
+	physicalNamespace := "kcp-2nrk8iaz3r87"
+	syncTargetLogicalCluster := logicalcluster.Name("2s6kr9ttj9j4s0eu")
+	syncTargetName := "west"
+
 	// Set defaults which may be overridden later.
 	cm.SetAuthenticationInfoResolver(authInfoResolver)
-	cm.SetServiceResolver(webhookutil.NewDefaultServiceResolver())
+
+	// TODO(davidfestal): not sure it is really useful, it only overrides the addr passed to the dialer
+	// in the clientManager.
+	// However we don't use the address in the tunneler dialer.
+	// The host passed to the http request will still be the one hard-coded ("name.namespace.svc").
+	cm.SetServiceResolver(&kcpServiceResolver{
+		transformNamespace: func(namespace string) (string, error) {
+			return physicalNamespace, nil
+		},
+	})
+	cm.SetAuthenticationInfoResolverWrapper(func(delegate webhookutil.AuthenticationInfoResolver) webhookutil.AuthenticationInfoResolver {
+		return &webhookutil.AuthenticationInfoResolverDelegator{
+			ClientConfigForFunc: delegate.ClientConfigFor,
+			ClientConfigForServiceFunc: func(serviceName, serviceNamespace string, servicePort int) (*rest.Config, error) {
+				config, err := delegate.ClientConfigForService(serviceName, serviceNamespace, servicePort)
+				if err != nil {
+					return nil, err
+				}
+				// Overriding the Dial function here with the dial method of the right tunneler Dialer,
+				// means that the tls handshake will in fact be done on the Syncer side.
+				// But for this the connection handler on the Syncer side should be able to detect
+				// this situation and react accordingly.
+				// For this leads to the request being rejected by the http server on the syncer side
+				// because it is not valid http (of course, this is the tls handshake, which is not part
+				// of the http request content).
+				config.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
+					dialer := p.tunneler.GetDialer(syncTargetLogicalCluster, syncTargetName)
+					if dialer == nil {
+						return nil, errors.New("no SyncTarget tunnel available")
+					}
+					return dialer.Dial(ctx, network, address)
+				}
+				return config, nil
+			},
+		}
+	})
 
 	p.WebhookDispatcher.SetDispatcher(dispatcherFactory(&cm))
 	// Need to do this, to make sure that the underlying objects for the call to ShouldCallHook have the right values
@@ -117,6 +169,11 @@ func (p *Plugin) Admit(ctx context.Context, attr admission.Attributes, o admissi
 	return p.WebhookDispatcher.Dispatch(ctx, attr, o)
 }
 
+// SetTunneler implements the WantsTunneler interface.
+func (p *Plugin) SetTunneler(tunneler *tunnel.Tunneler) {
+	p.tunneler = tunneler
+}
+
 // SetExternalKubeInformerFactory implements the WantsExternalKubeInformerFactory interface.
 func (p *Plugin) SetExternalKubeInformerFactory(f informers.SharedInformerFactory) {
 	p.Plugin.SetExternalKubeInformerFactory(f) // for namespaces
@@ -127,4 +184,19 @@ func (p *Plugin) SetKubeInformers(local, global kcpkubernetesinformers.SharedInf
 		informer := global.Admissionregistration().V1().MutatingWebhookConfigurations().Cluster(cluster)
 		return configuration.NewMutatingWebhookConfigurationManagerForInformer(informer)
 	}, global.Admissionregistration().V1().MutatingWebhookConfigurations().Informer().HasSynced)
+}
+
+type kcpServiceResolver struct {
+	transformNamespace func(namespace string) (string, error)
+}
+
+func (sr kcpServiceResolver) ResolveEndpoint(namespace, name string, port int32) (*url.URL, error) {
+	if len(name) == 0 || len(namespace) == 0 || port == 0 {
+		return nil, errors.New("cannot resolve an empty service name or namespace or port")
+	}
+	namespace, err := sr.transformNamespace(namespace)
+	if err != nil {
+		return nil, err
+	}
+	return &url.URL{Scheme: "https", Host: fmt.Sprintf("%s.%s.svc:%d", name, namespace, port)}, nil
 }

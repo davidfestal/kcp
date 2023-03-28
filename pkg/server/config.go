@@ -68,7 +68,7 @@ import (
 	kcpserveroptions "github.com/kcp-dev/kcp/pkg/server/options"
 	"github.com/kcp-dev/kcp/pkg/server/options/batteries"
 	"github.com/kcp-dev/kcp/pkg/server/requestinfo"
-	"github.com/kcp-dev/kcp/pkg/tunneler"
+	"github.com/kcp-dev/kcp/pkg/tunnel"
 )
 
 type Config struct {
@@ -370,6 +370,11 @@ func NewConfig(opts kcpserveroptions.CompletedOptions) (*Config, error) {
 		}
 	}
 
+	var tunneler *tunnel.Tunneler
+	if kcpfeatures.DefaultFeatureGate.Enabled(kcpfeatures.SyncerTunnel) {
+		tunneler = tunnel.NewTunneler()
+	}
+
 	// preHandlerChainMux is called before the actual handler chain. Note that BuildHandlerChainFunc below
 	// is called multiple times, but only one of the handler chain will actually be used. Hence, we wrap it
 	// to give handlers below one mux.Handle func to call.
@@ -381,7 +386,6 @@ func NewConfig(opts kcpserveroptions.CompletedOptions) (*Config, error) {
 		apiHandler = authorization.WithDeepSubjectAccessReview(apiHandler)
 
 		if kcpfeatures.DefaultFeatureGate.Enabled(kcpfeatures.SyncerTunnel) {
-			tunneler := tunneler.NewTunneler()
 			apiHandler = tunneler.WithSyncerTunnelHandler(apiHandler)
 			apiHandler = tunneler.WithPodSubresourceProxying(
 				apiHandler,

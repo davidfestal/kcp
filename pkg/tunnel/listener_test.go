@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Based on https://github.com/golang/build/blob/master/revdial/v2/revdial.go
-package tunneler
+package tunnel
 
 import "testing"
 

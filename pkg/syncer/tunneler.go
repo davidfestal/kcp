@@ -42,7 +42,7 @@ import (
 	workloadv1alpha1 "github.com/kcp-dev/kcp/pkg/apis/workload/v1alpha1"
 	"github.com/kcp-dev/kcp/pkg/server/requestinfo"
 	"github.com/kcp-dev/kcp/pkg/syncer/shared"
-	"github.com/kcp-dev/kcp/pkg/tunneler"
+	"github.com/kcp-dev/kcp/pkg/tunnel"
 )
 
 var (
@@ -121,14 +121,14 @@ func startTunneler(ctx context.Context, upstream, downstream *rest.Config, syncT
 	}
 	// strip the path
 	u.Path = ""
-	dst, err := tunneler.SyncerTunnelURL(u.String(), syncTargetClusterName.String(), syncTargetName)
+	dst, err := tunnel.SyncerTunnelURL(u.String(), syncTargetClusterName.String(), syncTargetName)
 	if err != nil {
 		return err
 	}
 
 	logger = logger.WithValues("syncer-tunnel-url", dst)
 	logger.Info("connecting to destination URL")
-	l, err := tunneler.NewListener(clientUpstream, dst)
+	l, err := tunnel.NewListener(clientUpstream, dst)
 	if err != nil {
 		return err
 	}

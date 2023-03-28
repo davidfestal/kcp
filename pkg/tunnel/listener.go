@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package tunneler
+package tunnel
 
 // Based on https://github.com/golang/build/blob/master/tunneler/v2/tunneler.go
 

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package tunneler
+package tunnel
 
 import (
 	"net/http"
@@ -31,7 +31,7 @@ import (
 // WithSyncerTunnelHandler adds an HTTP Handler that handles reverse connections via the tunnel subresource:
 //
 // https://host/clusters/<ws>/apis/workload.kcp.io/v1alpha1/synctargets/<name>/tunnel establish reverse connections and queue them so it can be consumed by the dialer
-func (tn *tunneler) WithSyncerTunnelHandler(apiHandler http.Handler) http.HandlerFunc {
+func (tn *Tunneler) WithSyncerTunnelHandler(apiHandler http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		logger := klog.FromContext(ctx)
@@ -63,7 +63,7 @@ func (tn *tunneler) WithSyncerTunnelHandler(apiHandler http.Handler) http.Handle
 
 		logger = logger.WithValues("cluster", clusterName, "syncerName", syncerName, "action", "tunnel")
 		logger.V(5).Info("tunneler connection received")
-		d := tn.getDialer(clusterName, syncerName)
+		d := tn.GetDialer(clusterName, syncerName)
 		// First flush response headers
 		flusher, ok := w.(http.Flusher)
 		if !ok {

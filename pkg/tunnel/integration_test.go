@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package tunneler
+package tunnel
 
 import (
 	"bytes"
@@ -57,7 +57,7 @@ func requestInfoHandler(handler http.Handler) http.HandlerFunc {
 	})
 }
 
-func setup(t *testing.T) (string, *tunneler, func()) {
+func setup(t *testing.T) (string, *Tunneler, func()) {
 	t.Helper()
 	backend := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "Hello world")

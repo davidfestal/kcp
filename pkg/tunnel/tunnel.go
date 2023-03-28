@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package tunneler
+package tunnel
 
 import (
 	"fmt"
@@ -44,22 +44,22 @@ type key struct {
 	syncTargetName string
 }
 
-// tunneler contains a pool of Dialers to create reverse connections
+// Tunneler contains a pool of Dialers to create reverse connections
 // based on the cluster and syncer name.
-type tunneler struct {
+type Tunneler struct {
 	mu   sync.Mutex
 	pool map[key]*Dialer
 }
 
-func NewTunneler() *tunneler {
-	return &tunneler{
+func NewTunneler() *Tunneler {
+	return &Tunneler{
 		pool: make(map[key]*Dialer),
 		mu:   sync.Mutex{},
 	}
 }
 
-// getDialer returns a reverse dialer for the id.
-func (tn *tunneler) getDialer(clusterName logicalcluster.Name, syncTargetName string) *Dialer {
+// GetDialer returns a reverse dialer for the id.
+func (tn *Tunneler) GetDialer(clusterName logicalcluster.Name, syncTargetName string) *Dialer {
 	tn.mu.Lock()
 	defer tn.mu.Unlock()
 	id := key{clusterName, syncTargetName}
@@ -68,7 +68,7 @@ func (tn *tunneler) getDialer(clusterName logicalcluster.Name, syncTargetName st
 
 // createDialer creates a reverse dialer with id
 // it's a noop if a dialer already exists.
-func (tn *tunneler) createDialer(clusterName logicalcluster.Name, syncTargetName string, conn net.Conn) *Dialer {
+func (tn *Tunneler) createDialer(clusterName logicalcluster.Name, syncTargetName string, conn net.Conn) *Dialer {
 	tn.mu.Lock()
 	defer tn.mu.Unlock()
 	id := key{clusterName, syncTargetName}
@@ -81,7 +81,7 @@ func (tn *tunneler) createDialer(clusterName logicalcluster.Name, syncTargetName
 }
 
 // deleteDialer deletes the reverse dialer for a given id.
-func (tn *tunneler) deleteDialer(clusterName logicalcluster.Name, syncTargetName string) {
+func (tn *Tunneler) deleteDialer(clusterName logicalcluster.Name, syncTargetName string) {
 	tn.mu.Lock()
 	defer tn.mu.Unlock()
 	id := key{clusterName, syncTargetName}

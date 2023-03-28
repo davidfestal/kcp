@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package tunneler
+package tunnel
 
 import (
 	"context"
@@ -49,7 +49,7 @@ var (
 )
 
 // WithPodSubresourceProxying proxies the POD subresource requests using the syncer tunneler.
-func (tn *tunneler) WithPodSubresourceProxying(apiHandler http.Handler, kcpclient dynamic.ClusterInterface, kcpInformer kcpinformers.SharedInformerFactory) http.Handler {
+func (tn *Tunneler) WithPodSubresourceProxying(apiHandler http.Handler, kcpclient dynamic.ClusterInterface, kcpInformer kcpinformers.SharedInformerFactory) http.Handler {
 	syncTargetInformer, err := kcpInformer.ForResource(workloadv1alpha1.SchemeGroupVersion.WithResource("synctargets"))
 	if err != nil {
 		panic(err)
@@ -249,8 +249,8 @@ func podSubresourceURL(downstreamNamespaceName, podName, subresource string) (*u
 }
 
 // Proxy proxies the request to the syncer identified by the cluster and syncername.
-func (tn *tunneler) Proxy(clusterName logicalcluster.Name, syncerName string, rw http.ResponseWriter, req *http.Request) {
-	d := tn.getDialer(clusterName, syncerName)
+func (tn *Tunneler) Proxy(clusterName logicalcluster.Name, syncerName string, rw http.ResponseWriter, req *http.Request) {
+	d := tn.GetDialer(clusterName, syncerName)
 	if d == nil || isClosedChan(d.Done()) {
 		rw.Header().Set("Retry-After", "1")
 		http.Error(rw, "syncer tunnels: tunnel closed", http.StatusServiceUnavailable)

@@ -26,6 +26,7 @@ import (
 
 	kcpclientset "github.com/kcp-dev/kcp/pkg/client/clientset/versioned/cluster"
 	kcpinformers "github.com/kcp-dev/kcp/pkg/client/informers/externalversions"
+	"github.com/kcp-dev/kcp/pkg/tunnel"
 )
 
 // NewKcpInformersInitializer returns an admission plugin initializer that injects
@@ -67,6 +68,26 @@ type kcpInformersInitializer struct {
 func (i *kcpInformersInitializer) Initialize(plugin admission.Interface) {
 	if wants, ok := plugin.(WantsKcpInformers); ok {
 		wants.SetKcpInformers(i.localKcpInformers, i.globalKcpInformers)
+	}
+}
+
+// NewTunnelerInitializer returns an admission plugin initializer that injects
+// the tunneler into admission plugins.
+func NewTunnelerInitializer(
+	tunneler *tunnel.Tunneler,
+) *tunnelerInitializer {
+	return &tunnelerInitializer{
+		tunneler: tunneler,
+	}
+}
+
+type tunnelerInitializer struct {
+	tunneler *tunnel.Tunneler
+}
+
+func (i *tunnelerInitializer) Initialize(plugin admission.Interface) {
+	if wants, ok := plugin.(WantsTunneler); ok {
+		wants.SetTunneler(i.tunneler)
 	}
 }
 

@@ -22,6 +22,7 @@ import (
 
 	kcpclientset "github.com/kcp-dev/kcp/pkg/client/clientset/versioned/cluster"
 	kcpinformers "github.com/kcp-dev/kcp/pkg/client/informers/externalversions"
+	"github.com/kcp-dev/kcp/pkg/tunnel"
 )
 
 // WantsKcpInformers interface should be implemented by admission plugins
@@ -40,6 +41,12 @@ type WantsKubeInformers interface {
 // that want to have a kube cluster client injected.
 type WantsKubeClusterClient interface {
 	SetKubeClusterClient(kcpkubernetesclientset.ClusterInterface)
+}
+
+// WantsTunneler interface should be implemented by admission plugins
+// that want to have the tunneler injected.
+type WantsTunneler interface {
+	SetTunneler(*tunnel.Tunneler)
 }
 
 // WantsKcpClusterClient interface should be implemented by admission plugins

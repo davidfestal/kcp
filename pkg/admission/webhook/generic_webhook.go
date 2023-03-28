@@ -144,6 +144,17 @@ func (p *WebhookDispatcher) getAPIExportCluster(attr admission.Attributes, clust
 		return "", err
 	}
 	for _, apiBinding := range objs {
+		// Don't take the root:compute:kubernetes APIExport into account.
+		// We want to allow installing webhooks on workspaces that are bound to the default compute APIExort,
+		// without requiring the webhook to be installed in the root compute workspace.
+		// TODO(davidfestal): Obviously there should be more thought about skipping some APIExports whose bindings are
+		// not meaningful. Or maybe giving priority to those having accepted permission claims on the given resource ?
+		if apiBinding.Spec.Reference.Export != nil &&
+			apiBinding.Spec.Reference.Export.Name == "kubernetes" &&
+			apiBinding.Spec.Reference.Export.Path == "root:compute" {
+			continue
+		}
+
 		for _, br := range apiBinding.Status.BoundResources {
 			if br.Group == attr.GetResource().Group && br.Resource == attr.GetResource().Resource {
 				return logicalcluster.Name(apiBinding.Status.APIExportClusterName), nil
